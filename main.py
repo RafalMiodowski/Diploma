@@ -1,5 +1,5 @@
 from nicegui import ui, run
-from app import klucz_api, projekt
+from app import klucz_api, projekt, asystent
 from app.sciezki import FOLDER_DANYCH
 
 # Pozycje menu: (nazwa, ikona, adres, czy_gotowe)
@@ -44,17 +44,79 @@ def strona_asystenta():
         return
     uklad("Asystent")
 
-    with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-4"):
-        ui.label("Asystent").classes("text-h5")
-        ui.label("Czat pojawi się tu w kroku 5. Poniżej: to, co asystent będzie wiedział o Twojej pracy.").classes("text-grey-7")
+    with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-2 h-[calc(100vh-70px)] no-wrap"):
+        # Podgląd tego, co asystent wie o projekcie (zwinięty)
+        with ui.expansion("Co asystent wie o Twoim projekcie", icon="school").classes("w-full"):
+            ui.markdown(projekt.jako_tekst() or "_Karta projektu jest pusta._")
 
-        tekst = projekt.jako_tekst()
-        with ui.card().classes("w-full"):
-            if tekst:
-                ui.markdown(tekst)
-            else:
-                ui.label("Karta projektu jest pusta. Uzupełnij ją w zakładce „Mój projekt”.")
+        # Obszar wiadomości
+        with ui.scroll_area().classes("w-full flex-grow border rounded") as obszar:
+            wiadomosci = ui.column().classes("w-full gap-3 p-2")
 
+        def dymek(rola, tekst):
+            """Dodaje dymek wiadomości i zwraca element z tekstem."""
+            with wiadomosci:
+                if rola == "user":
+                    with ui.row().classes("w-full justify-end"):
+                        with ui.card().classes("bg-blue-1 max-w-[80%]"):
+                            return ui.markdown(tekst)
+                else:
+                    with ui.card().classes("w-full"):
+                        return ui.markdown(tekst)
+
+        # Pokaż rozmowę, która już trwa (np. po przejściu z innej zakładki)
+        for w in asystent.ROZMOWA:
+            dymek(w["role"], w["content"])
+
+        info = ui.label().classes("text-caption text-grey-6")
+
+        # Pole do pisania i przyciski
+        with ui.row().classes("w-full items-end no-wrap"):
+            pole = ui.textarea(placeholder="Napisz wiadomość... (Enter wysyła, Shift+Enter nowa linia)").props("autogrow outlined").classes("flex-grow")
+            przycisk = ui.button(icon="send")
+
+        async def wyslij():
+            tekst = (pole.value or "").strip()
+            if not tekst:
+                return
+            pole.value = ""
+            przycisk.disable()
+
+            asystent.ROZMOWA.append({"role": "user", "content": tekst})
+            dymek("user", tekst)
+            odp = dymek("assistant", "_Asystent myśli..._")
+            obszar.scroll_to(percent=1.0)
+
+            zebrane = []
+
+            def przy_kawalku(kawalek):
+                zebrane.append(kawalek)
+                odp.content = "".join(zebrane)
+                obszar.scroll_to(percent=1.0)
+
+            try:
+                wiadomosc = await asystent.odpowiedz(asystent.ROZMOWA, przy_kawalku)
+                asystent.ROZMOWA.append({"role": "assistant", "content": "".join(zebrane)})
+                u = wiadomosc.usage
+                info.text = (
+                    f"Ostatnia odpowiedź: wejście {u.input_tokens} tok. "
+                    f"(z cache: {u.cache_read_input_tokens or 0}), "
+                    f"wyjście {u.output_tokens} tok."
+                )
+            except Exception as e:
+                asystent.ROZMOWA.pop()  # usuń pytanie, na które nie było odpowiedzi
+                odp.content = f"⚠️ {asystent.przyjazny_blad(e)}"
+            finally:
+                przycisk.enable()
+
+        def nowa_rozmowa():
+            asystent.ROZMOWA.clear()
+            wiadomosci.clear()
+            info.text = ""
+
+        przycisk.on_click(wyslij)
+        pole.on("keydown.enter.exact.prevent", wyslij)
+        ui.button("Nowa rozmowa", icon="add_comment", on_click=nowa_rozmowa).props("flat dense")
 
 @ui.page("/projekt")
 def strona_projektu():
