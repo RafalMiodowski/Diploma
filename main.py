@@ -1,9 +1,15 @@
-# Wymagane przez spakowaną aplikację (.exe): okno aplikacji działa w osobnym procesie
+# Wymagane przez spakowaną aplikację (.exe)
 from multiprocessing import freeze_support  # noqa: E402
 freeze_support()
 
+import asyncio  # noqa: E402
+import os  # noqa: E402
 import re  # noqa: E402
+import subprocess  # noqa: E402
 import sys  # noqa: E402
+import threading  # noqa: E402
+import urllib.request  # noqa: E402
+import webbrowser  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from app.sciezki import FOLDER_DANYCH  # noqa: E402
@@ -15,8 +21,71 @@ if sys.stdout is None or sys.stderr is None:
     sys.stdout = sys.stdout or _log
     sys.stderr = sys.stderr or _log
 
-from nicegui import ui, run, native, app as aplikacja  # noqa: E402
+# =====================================================================
+# OKNO APLIKACJI
+# Diploma działa jako mały serwer na tym komputerze (127.0.0.1), a okno to Edge
+# w trybie aplikacji: bez paska adresu i kart, wygląda jak zwykły program.
+# Gdy Edge'a nie ma (np. macOS), otwieramy domyślną przeglądarkę.
+# =====================================================================
+
+PORT = 8765
+ADRES = f"http://127.0.0.1:{PORT}"
+
+
+def otworz_okno(adres=ADRES):
+    edge = [
+        Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("PROGRAMFILES", "")) / "Microsoft/Edge/Application/msedge.exe",
+    ]
+    for sciezka in edge:
+        if sciezka.is_file():
+            subprocess.Popen([
+                str(sciezka), f"--app={adres}", "--start-maximized",
+                f"--user-data-dir={FOLDER_DANYCH / 'okno'}",  # osobny profil = osobne okno aplikacji
+                "--no-first-run", "--no-default-browser-check",
+            ])
+            return
+    webbrowser.open(adres)
+
+
+def juz_dziala():
+    """Czy Diploma jest już uruchomiona? Jeśli tak, wystarczy otworzyć jej okno."""
+    try:
+        # bez serwerów proxy: łączymy się z własnym komputerem
+        bez_proxy = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with bez_proxy.open(f"{ADRES}/diploma-ping", timeout=1) as odp:
+            return odp.read() == b"diploma"
+    except Exception:
+        return False
+
+
+# Druga kopia programu nie startuje: tylko otwiera okno już działającej
+if __name__ in {"__main__", "__mp_main__"} and juz_dziala():
+    otworz_okno()
+    sys.exit(0)
+
+from nicegui import ui, run, Client, background_tasks, app as aplikacja  # noqa: E402
 from app import klucz_api, projekt, asystent, historia, baza_wiedzy, wymagania, szablony, zalaczniki, koszty, ustawienia  # noqa: E402
+
+
+@aplikacja.get("/diploma-ping")
+def ping():
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse("diploma")
+
+
+async def _zamknij_gdy_brak_okien():
+    # Przejście między zakładkami też na chwilę rozłącza okno, więc czekamy kilka sekund
+    await asyncio.sleep(8)
+    if not any(k.has_socket_connection for k in Client.instances.values()):
+        print("Okno zamknięte, kończę pracę.")
+        aplikacja.shutdown()
+
+
+# Zamknięcie okna kończy program (żeby nie wisiał w tle)
+aplikacja.on_disconnect(lambda: background_tasks.create(_zamknij_gdy_brak_okien()))
+# Okno otwieramy w osobnym wątku, żeby nigdy nie wstrzymać startu serwera
+aplikacja.on_startup(lambda: threading.Thread(target=otworz_okno, daemon=True).start())
 
 # Folder z ikoną: przy pisaniu leży obok main.py, w spakowanej aplikacji w folderze PyInstallera
 FOLDER_APLIKACJI = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -892,7 +961,8 @@ def strona_ustawien():
 @ui.page("/klucz")
 def strona_klucza():
     motyw()
-    with ui.card().classes("absolute-center w-[460px] max-w-full q-pa-lg gap-3 wejscie"):
+    with ui.column().classes("w-full min-h-screen items-center justify-center q-pa-md"), \
+         ui.card().classes("w-[460px] max-w-full q-pa-lg gap-3 wejscie"):
         with ui.row().classes("items-center gap-3 no-wrap"):
             ui.image("/static/ikona.png").classes("w-12 h-12 rounded-xl")
             with ui.column().classes("gap-0"):
@@ -939,8 +1009,8 @@ if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
         title="Diploma",
         favicon=FOLDER_STATIC / "ikona.png",
-        native=True,
-        window_size=(1280, 820),
+        host="127.0.0.1",   # dostępne tylko z tego komputera
+        port=PORT,
+        show=False,         # okno otwieramy sami (otworz_okno)
         reload=False,
-        port=native.find_open_port(),  # wolny port, nawet gdy coś innego zajmuje domyślny
     )
