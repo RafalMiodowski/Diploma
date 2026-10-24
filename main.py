@@ -1,13 +1,12 @@
 from nicegui import ui, run
-from app import klucz_api, projekt, asystent
+from app import klucz_api, projekt, asystent, historia, baza_wiedzy, wymagania
 from app.sciezki import FOLDER_DANYCH
-from app import klucz_api, projekt, asystent, historia
 
 # Pozycje menu: (nazwa, ikona, adres, czy_gotowe)
 MENU = [
     ("Asystent", "chat", "/", True),
     ("Mój projekt", "school", "/projekt", True),
-    ("Wymagania uczelni", "rule", "/wymagania", False),
+    ("Wymagania uczelni", "rule", "/wymagania", True),
     ("Źródła", "menu_book", "/zrodla", False),
     ("Ustawienia", "settings", "/klucz", True),
 ]
@@ -52,8 +51,10 @@ def strona_asystenta():
             ui.button(icon="add_comment", on_click=lambda: nowa()).props("flat").tooltip("Nowa rozmowa")
             ui.button(icon="delete", on_click=lambda: potwierdz_usuniecie()).props("flat").tooltip("Usuń rozmowę")
 
-        with ui.expansion("Co asystent wie o Twoim projekcie", icon="school").classes("w-full"):
+        with ui.expansion("Co asystent wie o Twojej pracy", icon="school").classes("w-full"):
             ui.markdown(projekt.jako_tekst() or "_Karta projektu jest pusta._")
+            ui.separator()
+            ui.markdown(wymagania.wczytaj() or "_Karta wymagań jest pusta._")
 
         with ui.scroll_area().classes("w-full flex-grow border rounded") as obszar:
             wiadomosci = ui.column().classes("w-full gap-3 p-2")
@@ -198,6 +199,163 @@ def strona_projektu():
         ui.button("Zapisz", icon="save", on_click=zapisz)
         ui.label(f"Dane zapisywane w: {FOLDER_DANYCH}").classes("text-caption text-grey-6")
 
+async def odczytaj_plik(e):
+    """Różne wersje NiceGUI przekazują wgrany plik trochę inaczej. Obsługujemy obie."""
+    if hasattr(e, "file"):
+        return e.file.name, await e.file.read()
+    return e.name, e.content.read()
+
+
+def strona_kolekcji(kolekcja, tytul, opis):
+    """Wspólny ekran dla bazy wiedzy: wgrywanie PDF-ów, lista, test wyszukiwania."""
+
+    # ---------- funkcje ----------
+
+    def odswiez_liste():
+        lista.clear()
+        dokumenty = baza_wiedzy.lista_dokumentow(kolekcja)
+        with lista:
+            if not dokumenty:
+                ui.label("Brak dokumentów.").classes("text-grey-6")
+            for d in dokumenty:
+                with ui.row().classes("w-full items-center no-wrap"):
+                    ui.icon("description").classes("text-grey-7")
+                    ui.label(f"{d['plik']}  ·  {d['stron']} str., {d['fragmentow']} fragm.").classes("flex-grow")
+                    ui.button(icon="delete", on_click=lambda i=d["id"]: usun(i)).props("flat dense")
+
+    def usun(dokument_id):
+        baza_wiedzy.usun_dokument(dokument_id)
+        ui.notify("Usunięto dokument")
+        odswiez_liste()
+
+    async def przy_wgraniu(e):
+        nazwa, dane = await odczytaj_plik(e)
+        status.text = f"Przetwarzam {nazwa}... (za pierwszym razem dłużej: pobieranie modelu ~220 MB)"
+        try:
+            stron, fragm = await run.io_bound(baza_wiedzy.dodaj_pdf, kolekcja, nazwa, dane)
+            ui.notify(f"{nazwa}: {stron} stron, {fragm} fragmentów", type="positive")
+        except Exception as ex:
+            ui.notify(f"{nazwa}: {ex}", type="negative", multi_line=True)
+        status.text = ""
+        odswiez_liste()
+
+    async def szukaj():
+        if not (pytanie.value or "").strip():
+            return
+        wyniki.clear()
+        trafienia = await run.io_bound(baza_wiedzy.szukaj, kolekcja, pytanie.value, 5)
+        with wyniki:
+            if not trafienia:
+                ui.label("Baza jest pusta. Najpierw wgraj dokumenty.")
+            for t in trafienia:
+                with ui.card().classes("w-full"):
+                    ui.label(f"{t['plik']}, str. {t['strona']}  ·  podobieństwo {t['wynik']:.2f}").classes("text-caption text-grey-7")
+                    ui.markdown(t["tresc"])
+
+    # ---------- ekran ----------
+
+    with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-3"):
+        ui.label(tytul).classes("text-h5")
+        ui.label(opis).classes("text-grey-7")
+
+        ui.upload(
+            label="Przeciągnij PDF-y albo kliknij +",
+            multiple=True, auto_upload=True, on_upload=przy_wgraniu,
+        ).props('accept=".pdf"').classes("w-full")
+        status = ui.label().classes("text-primary")
+
+        ui.label("Wgrane dokumenty").classes("text-h6")
+        lista = ui.column().classes("w-full gap-1")
+
+        ui.separator()
+        ui.label("Test wyszukiwania").classes("text-h6")
+        ui.label("Wpisz pytanie i zobacz, jakie fragmenty asystent dostałby z tej bazy.").classes("text-grey-7")
+        with ui.row().classes("w-full items-center no-wrap"):
+            pytanie = ui.input("Pytanie, np. jaka czcionka obowiązuje w pracy?").classes("flex-grow")
+            pytanie.on("keydown.enter", szukaj)
+            ui.button("Szukaj", icon="search", on_click=szukaj)
+        wyniki = ui.column().classes("w-full gap-2")
+
+    odswiez_liste()
+
+
+@ui.page("/wymagania")
+def karta_wymagan():
+    """Sekcja z kartą wymagań: generowanie, edycja, zapis."""
+
+    async def generuj():
+        if not baza_wiedzy.lista_dokumentow("uczelnia"):
+            ui.notify("Najpierw wgraj dokumenty uczelni.", type="warning")
+            return
+        przycisk_gen.disable()
+        przycisk_zapisz.disable()
+        try:
+            status.text = "Czytam dokumenty..."
+            tekst = await run.io_bound(baza_wiedzy.tekst_dokumentow, "uczelnia")
+            if len(tekst) > wymagania.MAKS_ZNAKOW:
+                tekst = tekst[:wymagania.MAKS_ZNAKOW]
+                ui.notify("Dokumenty są bardzo długie. Wzięto tylko ich początek.", type="warning")
+
+            status.text = "Asystent czyta dokumenty i pisze kartę. To może potrwać 1–2 minuty..."
+            pole.value = ""
+            zebrane = []
+
+            def przy_kawalku(kawalek):
+                zebrane.append(kawalek)
+                pole.value = "".join(zebrane)
+
+            w = await wymagania.generuj(tekst, przy_kawalku)
+            status.text = (
+                f"Gotowe ({w.usage.input_tokens} tok. wejścia, {w.usage.output_tokens} tok. wyjścia). "
+                "Sprawdź kartę, popraw, co trzeba, i kliknij Zapisz."
+            )
+        except Exception as e:
+            status.text = f"⚠️ {asystent.przyjazny_blad(e)}"
+        finally:
+            przycisk_gen.enable()
+            przycisk_zapisz.enable()
+
+    async def klik_generuj():
+        if (pole.value or "").strip():
+            with ui.dialog() as okno, ui.card():
+                ui.label("Wygenerować kartę od nowa? Treść w edytorze zostanie zastąpiona. "
+                         "Zapisana wersja zostaje, dopóki nie klikniesz Zapisz.")
+                with ui.row():
+                    ui.button("Anuluj", on_click=lambda: okno.submit(False)).props("flat")
+                    ui.button("Generuj", on_click=lambda: okno.submit(True))
+            if not await okno:
+                return
+        await generuj()
+
+    def zapisz():
+        wymagania.zapisz(pole.value or "")
+        ui.notify("Zapisano kartę wymagań. Asystent będzie z niej korzystał.", type="positive")
+
+    with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-3"):
+        ui.separator()
+        ui.label("Karta wymagań").classes("text-h5")
+        ui.label(
+            "Zwięzłe podsumowanie wymogów uczelni. Asystent ma ją zawsze przed oczami. "
+            "Sprawdź ją uważnie z dokumentami: to Twoje źródło prawdy."
+        ).classes("text-grey-7")
+        with ui.row():
+            przycisk_gen = ui.button("Wygeneruj z dokumentów", icon="auto_awesome", on_click=klik_generuj)
+            przycisk_zapisz = ui.button("Zapisz", icon="save", on_click=zapisz)
+        status = ui.label().classes("text-primary")
+        pole = ui.textarea(value=wymagania.wczytaj()).props("autogrow outlined").classes("w-full")
+
+
+@ui.page("/wymagania")
+def strona_wymagan():
+    if not jest_klucz():
+        return
+    uklad("Wymagania uczelni")
+    strona_kolekcji(
+        "uczelnia",
+        "Wymagania uczelni",
+        "Wgraj regulaminy, zarządzenia i wytyczne dotyczące pracy dyplomowej: formatowanie, terminy, struktura, zasady cytowania.",
+    )
+    karta_wymagan()
 
 @ui.page("/klucz")
 def strona_klucza():

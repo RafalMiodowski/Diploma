@@ -1,5 +1,5 @@
 import anthropic
-from app import klucz_api, projekt
+from app import klucz_api, projekt, wymagania
 
 MODEL = "claude-sonnet-5-5"
 
@@ -14,6 +14,8 @@ INSTRUKCJE = """Jesteś osobistym asystentem studenta piszącego pracę inżynie
 Zasady:
 - Trzymaj się tematu, celu i zakresu pracy z karty projektu poniżej. Jeśli prośba wykracza poza zakres pracy, zwróć na to uwagę.
 - Odpowiadaj po polsku. Treści do pracy pisz stylem akademickim, chyba że student poprosi inaczej.
+- Pytania o wymogi formalne (formatowanie, terminy, struktura, cytowanie) opieraj na sekcji "Wymagania uczelni" i podawaj źródło (plik, strona). Jeśli czegoś tam nie ma, powiedz to wprost i doradź sprawdzenie w dokumentach lub u promotora.
+- Gdy piszesz lub poprawiasz treści do pracy, pilnuj zgodności z wymaganiami uczelni.
 - Nie wymyślaj źródeł, cytatów, danych ani wymagań uczelni. Jeśli czegoś nie wiesz, powiedz to wprost.
 - Pomagaj tak, żeby student rozumiał i rozwijał swoją pracę: wyjaśniaj, proponuj, poprawiaj, zadawaj pytania, gdy czegoś brakuje.
 - Jeśli w rozmowie zapadnie ważna decyzja dotycząca pracy, zasugeruj studentowi dopisanie jej do karty projektu.
@@ -22,13 +24,13 @@ Zasady:
 
 def prompt_systemowy():
     karta = projekt.jako_tekst() or "(Student nie uzupełnił jeszcze karty projektu.)"
-    return [
-        {
-            "type": "text",
-            "text": INSTRUKCJE + "\n\n# Karta projektu\n\n" + karta,
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
+    wym = wymagania.wczytaj() or "(Student nie przygotował jeszcze karty wymagań uczelni.)"
+    tekst = (
+        INSTRUKCJE
+        + "\n\n# Karta projektu\n\n" + karta
+        + "\n\n# Wymagania uczelni (zweryfikowane przez studenta)\n\n" + wym
+    )
+    return [{"type": "text", "text": tekst, "cache_control": {"type": "ephemeral"}}]
 
 
 def przytnij(historia):
