@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diploma: agent do pisania prac dyplomowych</title>
+<meta name="description" content="Agent AI stworzony do pisania prac dyplomowych i rocznych. Zna Twój temat, wymagania uczelni i Twoje źródła, więc nie musisz ich powtarzać przy każdej rozmowie.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232B4C7E'/%3E%3Ctext x='32' y='45' font-family='Arial' font-weight='700' font-size='38' fill='white' text-anchor='middle'%3ED%3C/text%3E%3Crect x='22' y='51' width='20' height='3' rx='1.5' fill='%23C9A227'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --tlo: #F6F7FA;
+    --papier: #FFFFFF;
+    --atrament: #13213A;
+    --granat: #2B4C7E;
+    --zloto: #C9A227;
+    --linia: #DCE1EA;
+    --szary: #5A6577;
+    --mgla: #E9EDF4;
+    --naglowki: "Bricolage Grotesque", "Segoe UI", sans-serif;
+    --tekst: "Instrument Sans", "Segoe UI", -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--tlo); color: var(--atrament);
+    font-family: var(--tekst); font-size: 17px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--granat); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 3px solid var(--zloto); outline-offset: 3px; border-radius: 6px;
+  }
+  .kontener { width: min(1120px, 100% - 40px); margin-inline: auto; }
+
+  /* ---------- pasek górny ---------- */
+  .gora { padding: 22px 0; }
+  .gora .kontener { display: flex; align-items: center; gap: 14px; }
+  .znak { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--atrament);
+          font-family: var(--naglowki); font-weight: 700; font-size: 20px; }
+  .znak svg { width: 34px; height: 34px; }
+  .wersja { font-size: 13px; color: var(--szary); border: 1px solid var(--linia); border-radius: 999px;
+            padding: 3px 10px; background: var(--papier); }
+  .gora nav { margin-left: auto; display: flex; gap: 22px; font-size: 15px; }
+  .gora nav a { color: var(--szary); text-decoration: none; }
+  .gora nav a:hover { color: var(--atrament); }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 56px 0 96px; }
+  .hero .kontener { display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; }
+  h1 {
+    font-family: var(--naglowki); font-weight: 800; letter-spacing: -0.035em;
+    font-size: clamp(42px, 6.2vw, 78px); line-height: 0.98; margin: 0 0 24px;
+  }
+  h1 .linia-druga { display: block; color: var(--granat); }
+  .lead { font-size: 20px; color: var(--szary); max-width: 34ch; margin: 0 0 32px; }
+  .pobierz-blok { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; }
+  .przycisk {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--granat); color: #fff; text-decoration: none;
+    font-weight: 600; font-size: 17px; padding: 15px 26px; border-radius: 14px;
+    box-shadow: 0 1px 0 rgba(255,255,255,.2) inset, 0 10px 24px -10px rgba(43,76,126,.7);
+    transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease;
+  }
+  .przycisk:hover { background: #24416D; transform: translateY(-1px); }
+  .przycisk:active { transform: translateY(1px); }
+  .przycisk svg { width: 20px; height: 20px; }
+  .info-pobierania { font-size: 14px; color: var(--szary); line-height: 1.45; }
+  .info-pobierania strong { color: var(--atrament); font-weight: 600; }
+
+  /* ---------- demo okna aplikacji ---------- */
+  .okno {
+    background: var(--papier); border: 1px solid var(--linia); border-radius: 18px;
+    box-shadow: 0 30px 60px -30px rgba(19,33,58,.35), 0 0 0 8px rgba(43,76,126,.05);
+    overflow: hidden;
+  }
+  .okno-pasek { display: flex; align-items: center; gap: 7px; padding: 12px 16px; border-bottom: 1px solid var(--mgla); }
+  .okno-pasek i { width: 11px; height: 11px; border-radius: 50%; background: var(--mgla); }
+  .okno-pasek span { margin-left: 8px; font-size: 13px; color: var(--szary); }
+  .okno-tresc { padding: 22px; min-height: 360px; display: flex; flex-direction: column; gap: 16px; }
+  .pytanie { align-self: flex-end; background: var(--mgla); border-radius: 18px; padding: 10px 16px;
+             max-width: 85%; font-size: 15px; min-height: 44px; }
+  .kursor { display: inline-block; width: 2px; height: 1em; background: var(--atrament); vertical-align: -2px;
+            animation: mrug 1s steps(1) infinite; }
+  @keyframes mrug { 50% { opacity: 0; } }
+  .odpowiedz { display: flex; gap: 12px; align-items: flex-start; font-size: 15px; }
+  .odpowiedz svg { width: 28px; height: 28px; flex: none; margin-top: 2px; }
+  .odpowiedz-tresc { flex: 1; min-width: 0; }
+  .krok { font-size: 13px; color: var(--szary); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .krok svg { width: 14px; height: 14px; animation: puls 1.2s ease-in-out infinite; }
+  @keyframes puls { 50% { opacity: .35; } }
+  .odpowiedz ul { margin: 6px 0 0; padding-left: 18px; }
+  .odpowiedz li { margin: 4px 0; }
+  .zrodlo { display: inline-block; font-size: 12.5px; color: var(--granat); background: rgba(43,76,126,.08);
+            border-radius: 6px; padding: 1px 7px; margin-left: 4px; white-space: nowrap; }
+  .ukryte { opacity: 0; transform: translateY(6px); }
+  .widoczne { opacity: 1; transform: none; transition: opacity .4s ease, transform .4s ease; }
+  .okno-dol { margin: 0 22px 22px; border: 1px solid var(--linia); border-radius: 999px; padding: 10px 10px 10px 18px;
+              display: flex; align-items: center; justify-content: space-between; color: var(--szary); font-size: 14px; }
+  .okno-dol b { width: 30px; height: 30px; border-radius: 50%; background: var(--atrament); display: grid; place-items: center; }
+  .okno-dol b svg { width: 14px; height: 14px; }
+
+  /* ---------- sekcje ---------- */
+  section { padding: 88px 0; }
+  h2 {
+    font-family: var(--naglowki); font-weight: 700; letter-spacing: -0.025em;
+    font-size: clamp(30px, 4vw, 46px); line-height: 1.05; margin: 0 0 16px; max-width: 20ch;
+  }
+  .wstep { color: var(--szary); font-size: 18px; max-width: 58ch; margin: 0 0 48px; }
+
+  /* porównanie */
+  .porownanie { background: var(--papier); border-block: 1px solid var(--linia); }
+  .kolumny { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--linia); border-radius: 20px; overflow: hidden; }
+  .kolumna { padding: 32px 34px; }
+  .kolumna + .kolumna { border-left: 1px solid var(--linia); background: #FBFCFE; }
+  .kolumna h3 { font-family: var(--naglowki); font-size: 22px; margin: 0 0 18px; font-weight: 700; }
+  .kolumna ul { list-style: none; margin: 0; padding: 0; }
+  .kolumna li { padding: 12px 0 12px 34px; position: relative; border-top: 1px solid var(--mgla); }
+  .kolumna li:first-child { border-top: 0; }
+  .kolumna li svg { position: absolute; left: 0; top: 15px; width: 20px; height: 20px; }
+  .kolumna.stara li { color: var(--szary); }
+  .kolumna.stara h3 { color: var(--szary); }
+
+  /* jedno miejsce */
+  .zbiegi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; position: relative; }
+  .zbieg h3 { font-family: var(--naglowki); font-size: 24px; margin: 18px 0 8px; font-weight: 700; }
+  .zbieg p { margin: 0; color: var(--szary); }
+  .zbieg-ikona { width: 52px; height: 52px; border-radius: 14px; background: var(--papier); border: 1px solid var(--linia);
+                 display: grid; place-items: center; color: var(--granat); }
+  .zbieg-ikona svg { width: 26px; height: 26px; }
+  .zbieg .przyklad { margin-top: 14px; font-size: 14px; color: var(--atrament); border-left: 3px solid var(--zloto);
+                     padding: 2px 0 2px 12px; }
+
+  /* co potrafi */
+  .umiejetnosci { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 56px; }
+  .umiejetnosc { padding: 22px 0; border-top: 1px solid var(--linia); display: grid; grid-template-columns: 200px 1fr; gap: 20px; }
+  .umiejetnosc strong { font-family: var(--naglowki); font-weight: 700; font-size: 18px; }
+  .umiejetnosc span { color: var(--szary); }
+
+  /* kroki */
+  .kroki-sekcja { background: var(--atrament); color: #E8ECF3; }
+  .kroki-sekcja h2 { color: #fff; }
+  .kroki-sekcja .wstep { color: #A9B4C6; }
+  .kroki-sekcja a { color: #F1D676; }
+  .kroki { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; counter-reset: krok; }
+  .kroki li { counter-increment: krok; }
+  .kroki li::before {
+    content: counter(krok); display: block; font-family: var(--naglowki); font-weight: 800;
+    font-size: 64px; line-height: 1; color: var(--zloto); margin-bottom: 14px;
+  }
+  .kroki h3 { font-family: var(--naglowki); font-size: 22px; color: #fff; margin: 0 0 8px; }
+  .kroki p { margin: 0; color: #A9B4C6; }
+
+  /* rozwój */
+  .rozwoj .kontener { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: start; }
+  .plan { list-style: none; margin: 0; padding: 0; }
+  .plan li { display: flex; gap: 14px; padding: 14px 0; border-top: 1px solid var(--linia); }
+  .plan li:first-child { border-top: 0; }
+  .plan .status { flex: none; font-size: 13px; font-weight: 600; border-radius: 999px; padding: 2px 10px; height: fit-content; }
+  .plan .gotowe { background: rgba(46,125,50,.1); color: #2E7D32; }
+  .plan .wkrotce { background: rgba(201,162,39,.16); color: #8A6D12; }
+
+  /* FAQ */
+  .faq { max-width: 760px; }
+  details { border-top: 1px solid var(--linia); }
+  details:last-of-type { border-bottom: 1px solid var(--linia); }
+  summary { cursor: pointer; list-style: none; padding: 20px 40px 20px 0; position: relative;
+            font-family: var(--naglowki); font-weight: 700; font-size: 19px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; position: absolute; right: 6px; top: 16px; font-size: 26px; font-weight: 500;
+                   color: var(--granat); transition: transform .2s ease; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { margin: 0 0 20px; color: var(--szary); max-width: 64ch; }
+
+  /* stopka */
+  .koniec { text-align: center; padding: 96px 0 40px; }
+  .koniec h2 { margin-inline: auto; max-width: 18ch; }
+  .koniec .info-pobierania { margin-top: 14px; }
+  footer { padding: 32px 0 48px; color: var(--szary); font-size: 14px; }
+  footer .kontener { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; border-top: 1px solid var(--linia); padding-top: 24px; }
+
+  /* ---------- telefon ---------- */
+  @media (max-width: 900px) {
+    .hero .kontener, .rozwoj .kontener { grid-template-columns: 1fr; gap: 44px; }
+    .hero { padding-top: 28px; }
+    .zbiegi, .kroki { grid-template-columns: 1fr; gap: 32px; }
+    .kolumny { grid-template-columns: 1fr; }
+    .kolumna + .kolumna { border-left: 0; border-top: 1px solid var(--linia); }
+    .umiejetnosci { grid-template-columns: 1fr; }
+    .umiejetnosc { grid-template-columns: 1fr; gap: 4px; }
+    .gora nav { display: none; }
+    section { padding: 64px 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 64 64">
+    <rect width="64" height="64" rx="15" fill="#2B4C7E"/>
+    <path d="M20 14h11.5C42.5 14 49 21 49 31.5S42.5 49 31.5 49H20V14zm8 7v21h3.2c6.3 0 9.6-3.9 9.6-10.5S37.5 21 31.2 21H28z" fill="#fff"/>
+    <rect x="22" y="53" width="20" height="3.4" rx="1.7" fill="#C9A227"/>
+  </symbol>
+  <symbol id="ok" viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#2B4C7E"/><path d="M6 10.3l2.6 2.6L14 7.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="nie" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9.25" fill="none" stroke="#B8C0CD" stroke-width="1.5"/><path d="M7 7l6 6M13 7l-6 6" stroke="#B8C0CD" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="pobierz" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<header class="gora">
+  <div class="kontener">
+    <a class="znak" href="#"><svg><use href="#logo"/></svg>Diploma</a>
+    <span class="wersja" id="wersja">Wersja 1.0</span>
+    <nav aria-label="Sekcje strony">
+      <a href="#jak">Jak to działa</a>
+      <a href="#start">Jak zacząć</a>
+      <a href="#pytania">Pytania</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- ================= HERO ================= -->
+  <section class="hero" aria-labelledby="tytul">
+    <div class="kontener">
+      <div>
+        <h1 id="tytul">Inny wymiar<span class="linia-druga">pisania prac dyplomowych.</span></h1>
+        <p class="lead">To nie jest kolejny ogólny czat, któremu po raz setny tłumaczysz, o czym piszesz. Diploma to agent stworzony do jednego celu: pomóc Ci napisać pracę od pierwszego do ostatniego rozdziału.</p>
+        <div class="pobierz-blok">
+          <a class="przycisk link-pobierania" href="#">
+            <svg aria-hidden="true"><use href="#pobierz"/></svg>Pobierz dla Windows
+          </a>
+          <div class="info-pobierania">
+            <strong>Za darmo</strong>, <span class="rozmiar">ok. 145 MB</span><br>
+            Płacisz tylko za użycie Claude ze swojego konta
+          </div>
+        </div>
+      </div>
+
+      <div class="okno" role="img" aria-label="Przykład: student pyta o wymogi formatowania, asystent przeszukuje wymagania uczelni i odpowiada z podaniem pliku i strony.">
+        <div class="okno-pasek" aria-hidden="true"><i></i><i></i><i></i><span>Diploma</span></div>
+        <div class="okno-tresc" aria-hidden="true">
+          <div class="pytanie"><span id="demo-pytanie"></span><span class="kursor" id="demo-kursor"></span></div>
+          <div class="odpowiedz ukryte" id="demo-odpowiedz">
+            <svg><use href="#logo"/></svg>
+            <div class="odpowiedz-tresc">
+              <div class="krok" id="demo-krok">
+                <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                Szukam w wymaganiach uczelni
+              </div>
+              <div class="ukryte" id="demo-tekst">
+                Według wytycznych Twojego wydziału:
+                <ul>
+                  <li>Times New Roman, 12 pt, interlinia 1,5 <span class="zrodlo">Wytyczne.pdf, str. 3</span></li>
+                  <li>marginesy 2,5 cm, lewy 3,5 cm na oprawę <span class="zrodlo">Wytyczne.pdf, str. 3</span></li>
+                  <li>bibliografia w stylu IEEE, numerowana w kolejności cytowania <span class="zrodlo">Zarządzenie_12.pdf, str. 7</span></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="okno-dol" aria-hidden="true">Zapytaj o swoją pracę...<b><svg viewBox="0 0 16 16"><path d="M8 13V3m0 0L3.5 7.5M8 3l4.5 4.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PORÓWNANIE ================= -->
+  <section class="porownanie" id="jak" aria-labelledby="t-porownanie">
+    <div class="kontener">
+      <h2 id="t-porownanie">Ogólny czat zaczyna od zera. Diploma zna Twoją pracę.</h2>
+      <p class="wstep">ChatGPT czy Gemini umieją wszystko po trochu, więc przy każdej rozmowie musisz im od nowa tłumaczyć temat, wklejać regulamin i przypominać, z jakich źródeł korzystasz. Diploma od początku wie, nad czym pracujesz, i trzyma się tego do samego końca.</p>
+      <div class="kolumny">
+        <div class="kolumna stara">
+          <h3>Ogólny czat</h3>
+          <ul>
+            <li><svg aria-hidden="true"><use href="#nie"/></svg>Przy każdej rozmowie tłumaczysz od nowa, o czym piszesz</li>
+            <li><svg aria-hidden="true"><use href="#nie"/></svg>Regulamin, wytyczne i artykuły wklejasz w kółko, kawałek po kawałku</li>
+            <li><svg aria-hidden="true"><use href="#nie"/></svg>Rady są ogólne, bo czat nie zna Twojej uczelni ani Twojego tematu</li>
+            <li><svg aria-hidden="true"><use href="#nie"/></svg>Rozmowy o pracy giną między przepisami na obiad</li>
+          </ul>
+        </div>
+        <div class="kolumna">
+          <h3>Diploma</h3>
+          <ul>
+            <li><svg aria-hidden="true"><use href="#ok"/></svg>Temat, cel i zakres wpisujesz raz, a agent pamięta je w każdej rozmowie</li>
+            <li><svg aria-hidden="true"><use href="#ok"/></svg>Wymagania uczelni i Twoje źródła są zawsze pod ręką, bez wklejania</li>
+            <li><svg aria-hidden="true"><use href="#ok"/></svg>Każda rada dotyczy Twojej pracy, Twojego kierunku i Twoich wymogów</li>
+            <li><svg aria-hidden="true"><use href="#ok"/></svg>Osobne miejsce tylko na pracę, z historią wszystkich rozmów</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= JEDNO MIEJSCE ================= -->
+  <section aria-labelledby="t-miejsce">
+    <div class="kontener">
+      <h2 id="t-miejsce">Projekt, wymogi i źródła w jednym miejscu.</h2>
+      <p class="wstep">Wgrywasz swoje materiały raz. Agent sam decyduje, gdzie szukać, i pracuje na Twoich dokumentach, a nie na ogólnikach z internetu.</p>
+      <div class="zbiegi">
+        <div class="zbieg">
+          <div class="zbieg-ikona"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l9-4 9 4-9 4-9-4z"/><path d="M7 10v5c0 1.5 2.2 3 5 3s5-1.5 5-3v-5"/></svg></div>
+          <h3>Twój projekt</h3>
+          <p>Temat, cel, zakres, plan rozdziałów i ustalenia z promotorem. Agent pilnuje, żebyś nie zboczył z tematu.</p>
+          <p class="przyklad">„To wykracza poza zakres z Twojej karty projektu.”</p>
+        </div>
+        <div class="zbieg">
+          <div class="zbieg-ikona"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h6"/></svg></div>
+          <h3>Wymagania uczelni</h3>
+          <p>Wgraj regulaminy i wytyczne, a Diploma zrobi z nich zwięzłą kartę wymogów: czcionka, marginesy, terminy, cytowanie.</p>
+          <p class="przyklad">„Marginesy 2,5 cm (Wytyczne.pdf, str. 3).”</p>
+        </div>
+        <div class="zbieg">
+          <div class="zbieg-ikona"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1z"/><path d="M12 6v14"/></svg></div>
+          <h3>Twoje źródła</h3>
+          <p>Artykuły, przykładowe prace, notatki. PDF albo Word, po polsku albo po angielsku. Odpowiedź i tak dostajesz po polsku.</p>
+          <p class="przyklad">„Autorzy porównali trzy metody (Article_2731.pdf, str. 5, tłum.).”</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CO POTRAFI ================= -->
+  <section aria-labelledby="t-umie" style="padding-top: 0">
+    <div class="kontener">
+      <h2 id="t-umie">W czym pomaga na co dzień.</h2>
+      <p class="wstep">Gotowe polecenia są pod jednym przyciskiem. Załączasz plik i klikasz.</p>
+      <div class="umiejetnosci">
+        <div class="umiejetnosc"><strong>Recenzja rozdziału</strong><span>Ocena jak od wymagającego promotora: logika, braki, źródła, styl, lista poprawek.</span></div>
+        <div class="umiejetnosc"><strong>Zgodność z wymogami</strong><span>Sprawdza tekst z kartą wymagań i wskazuje, co poprawić.</span></div>
+        <div class="umiejetnosc"><strong>Korekta językowa</strong><span>Ortografia, interpunkcja i styl akademicki bez zmiany treści.</span></div>
+        <div class="umiejetnosc"><strong>Pomoc z kodem</strong><span>Część praktyczna: wyjaśnia błędy, proponuje poprawki i podpowiada, jak je opisać.</span></div>
+        <div class="umiejetnosc"><strong>Plan rozdziału</strong><span>Struktura podrozdziałów oparta na Twoich materiałach.</span></div>
+        <div class="umiejetnosc"><strong>Koszty pod kontrolą</strong><span>Koszt każdej odpowiedzi, podsumowanie miesiąca i limit wydatków.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= JAK ZACZĄĆ ================= -->
+  <section class="kroki-sekcja" id="start" aria-labelledby="t-start">
+    <div class="kontener">
+      <h2 id="t-start">Trzy kroki do pierwszej rozmowy.</h2>
+      <p class="wstep">Bez instalowania Pythona i bez konfiguracji. Pełna instrukcja jest w pliku INSTRUKCJA.txt w paczce.</p>
+      <ol class="kroki">
+        <li>
+          <h3>Pobierz i rozpakuj</h3>
+          <p>Rozpakuj ZIP i uruchom Diploma.exe. Przy pierwszym starcie Windows zapyta o zgodę: wybierz „Więcej informacji” i „Uruchom mimo to”.</p>
+        </li>
+        <li>
+          <h3>Wklej klucz API</h3>
+          <p>Załóż konto na <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a>, doładuj kilka dolarów i utwórz klucz. Program zapisze go w menedżerze haseł Windowsa.</p>
+        </li>
+        <li>
+          <h3>Wgraj materiały</h3>
+          <p>Uzupełnij kartę projektu, dodaj PDF-y z uczelni i swoje źródła. Od tej chwili po prostu pytasz.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ================= ROZWÓJ ================= -->
+  <section class="rozwoj" aria-labelledby="t-rozwoj">
+    <div class="kontener">
+      <div>
+        <h2 id="t-rozwoj">Wersja 1.0. Projekt dopiero się rozkręca.</h2>
+        <p class="wstep" style="margin-bottom: 0">Diploma powstaje jako projekt rozwojowy i każda wersja jest budowana na podstawie uwag osób, które z niej korzystają. Jeśli czegoś Ci brakuje albo coś nie działa tak, jak powinno, daj znać. To naprawdę zmienia kolejność prac.</p>
+      </div>
+      <ul class="plan" aria-label="Plan rozwoju">
+        <li><span class="status gotowe">Jest</span>Karta projektu, wymagania uczelni i źródła z podawaniem stron</li>
+        <li><span class="status gotowe">Jest</span>Załączniki: rozdziały w PDF i Word, pliki z kodem</li>
+        <li><span class="status gotowe">Jest</span>Licznik kosztów, limit miesięczny, wybór modelu</li>
+        <li><span class="status wkrotce">W planach</span>Odczyt zeskanowanych dokumentów</li>
+        <li><span class="status wkrotce">W planach</span>Wersja na macOS</li>
+        <li><span class="status wkrotce">W planach</span>Dokładniejsze wyszukiwanie numerów paragrafów i skrótów</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section id="pytania" aria-labelledby="t-faq" style="padding-top: 0">
+    <div class="kontener faq">
+      <h2 id="t-faq">Pytania.</h2>
+      <details>
+        <summary>Do jakich prac się nadaje?</summary>
+        <p>Do każdej większej pracy pisemnej, przy której liczą się wymagania i źródła: inżynierskiej, licencjackiej, magisterskiej, rocznej czy semestralnej. Wgrywasz wytyczne swojej uczelni i materiały do tematu, a agent dopasowuje się do nich.</p>
+      </details>
+      <details>
+        <summary>Ile to kosztuje?</summary>
+        <p>Sam program jest darmowy. Płacisz za użycie modeli Claude ze swojego konta API, zwykle ułamek centa do kilku centów za pytanie. Pod każdą odpowiedzią widać jej koszt, a w ustawieniach możesz ustawić miesięczny limit.</p>
+      </details>
+      <details>
+        <summary>Czy moje pliki trafiają na jakiś serwer?</summary>
+        <p>Nie. Rozmowy, dokumenty i ustawienia są zapisane tylko na Twoim komputerze. Do Claude wysyłane są wyłącznie Twoje pytania, karta projektu i fragmenty dokumentów potrzebne do odpowiedzi.</p>
+      </details>
+      <details>
+        <summary>Czy to zwykłe konto Claude, którego używam w przeglądarce?</summary>
+        <p>Nie. Diploma korzysta z konta API na platform.claude.com, które zakłada się osobno i rozlicza za faktyczne użycie, bez abonamentu.</p>
+      </details>
+      <details>
+        <summary>Czy Diploma napisze pracę za mnie?</summary>
+        <p>Pomoże ją pisać: wyjaśni, zaproponuje, sprawdzi i poprawi. Za pracę odpowiadasz jednak Ty, więc sprawdzaj podane źródła i zobacz, co Twoja uczelnia mówi o korzystaniu z narzędzi AI.</p>
+      </details>
+      <details>
+        <summary>A co z macOS?</summary>
+        <p>Wersja 1.0 jest na Windows. Wersja na macOS jest w planach.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- ================= KONIEC ================= -->
+  <section class="koniec" aria-labelledby="t-koniec">
+    <div class="kontener">
+      <svg width="56" height="56" aria-hidden="true"><use href="#logo"/></svg>
+      <h2 id="t-koniec">Przestań tłumaczyć. Zacznij pisać.</h2>
+      <a class="przycisk link-pobierania" href="#" style="margin-top: 12px">
+        <svg aria-hidden="true"><use href="#pobierz"/></svg>Pobierz dla Windows
+      </a>
+      <p class="info-pobierania"><span class="wersja-tekst">Wersja 1.0</span>, <span class="rozmiar">ok. 145 MB</span>, Windows 10 i 11</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="kontener">
+    <span>Diploma, autor: Rafał Miodowski</span>
+    <span><a href="#" id="link-repo">Kod źródłowy na GitHubie</a>, licencja AGPL-3.0</span>
+  </div>
+</footer>
+
+<script>
+  // ===== USTAWIENIA: wpisz tu swój login GitHuba i nazwę repozytorium =====
+  const GITHUB_LOGIN = "RafalMiodowski";
+  const REPOZYTORIUM = "Diploma";
+  const NAZWA_PLIKU = "Diploma-windows.zip";  // tak musi się nazywać plik w GitHub Releases
+  // ========================================================================
+
+  const repo = `https://github.com/${GITHUB_LOGIN}/${REPOZYTORIUM}`;
+  document.querySelectorAll(".link-pobierania").forEach(a => {
+    a.href = `${repo}/releases/latest/download/${NAZWA_PLIKU}`;
+  });
+  document.getElementById("link-repo").href = repo;
+
+  // Numer najnowszej wersji i rozmiar pliku prosto z GitHub Releases
+  fetch(`https://api.github.com/repos/${GITHUB_LOGIN}/${REPOZYTORIUM}/releases/latest`)
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(wydanie => {
+      const wersja = "Wersja " + wydanie.tag_name.replace(/^v/, "");
+      document.getElementById("wersja").textContent = wersja;
+      document.querySelectorAll(".wersja-tekst").forEach(e => e.textContent = wersja);
+      const plik = wydanie.assets.find(a => a.name === NAZWA_PLIKU);
+      if (plik) {
+        const mb = "ok. " + Math.round(plik.size / 1024 / 1024) + " MB";
+        document.querySelectorAll(".rozmiar").forEach(e => e.textContent = mb);
+      }
+    })
+    .catch(() => {});
+
+  // Animacja w oknie aplikacji: pytanie się pisze, asystent szuka i odpowiada
+  const pytanie = "Jaka czcionka i jakie marginesy obowiązują w mojej pracy?";
+  const elPytanie = document.getElementById("demo-pytanie");
+  const kursor = document.getElementById("demo-kursor");
+  const odpowiedz = document.getElementById("demo-odpowiedz");
+  const krok = document.getElementById("demo-krok");
+  const tekst = document.getElementById("demo-tekst");
+  const bezRuchu = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function pokazKoniec() {
+    elPytanie.textContent = pytanie;
+    kursor.style.display = "none";
+    odpowiedz.classList.add("widoczne");
+    tekst.classList.add("widoczne");
+    krok.querySelector("svg").style.animation = "none";
+  }
+
+  if (bezRuchu) {
+    pokazKoniec();
+  } else {
+    let i = 0;
+    setTimeout(function pisz() {
+      elPytanie.textContent = pytanie.slice(0, ++i);
+      if (i < pytanie.length) return setTimeout(pisz, 28 + Math.random() * 40);
+      kursor.style.display = "none";
+      setTimeout(() => odpowiedz.classList.add("widoczne"), 350);
+      setTimeout(pokazKoniec, 1700);
+    }, 700);
+  }
+</script>
+</body>
+</html>

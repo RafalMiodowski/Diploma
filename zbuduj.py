@@ -73,9 +73,11 @@ def main():
     if instrukcja.exists() and folder_aplikacji.is_dir() and SYSTEM != "macos":
         shutil.copy(instrukcja, folder_aplikacji / "INSTRUKCJA.txt")
 
+    # Stała nazwa pliku (bez numeru wersji), żeby link "najnowsza wersja" na stronie zawsze działał.
+    # Numer wersji podajesz w GitHub Releases jako tag, np. v1.0
     dopisek = "-test" if KONSOLA else ""
     archiwum = shutil.make_archive(
-        str(dist / f"{NAZWA}-{WERSJA}-{SYSTEM}{dopisek}"), "zip",
+        str(dist / f"{NAZWA}-{SYSTEM}{dopisek}"), "zip",
         root_dir=dist, base_dir=folder_aplikacji.name,
     )
     rozmiar = Path(archiwum).stat().st_size / 1024 / 1024
