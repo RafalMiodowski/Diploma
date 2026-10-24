@@ -1,12 +1,26 @@
-import re
-from pathlib import Path
+# Wymagane przez spakowaną aplikację (.exe): okno aplikacji działa w osobnym procesie
+from multiprocessing import freeze_support  # noqa: E402
+freeze_support()
 
-from nicegui import ui, run, app as aplikacja
-from app import klucz_api, projekt, asystent, historia, baza_wiedzy, wymagania, szablony, zalaczniki, koszty, ustawienia
-from app.sciezki import FOLDER_DANYCH
+import re  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
 
-# Folder z ikoną i innymi plikami statycznymi (obok main.py)
-FOLDER_STATIC = Path(__file__).resolve().parent / "static"
+from app.sciezki import FOLDER_DANYCH  # noqa: E402
+
+# Spakowana aplikacja bez konsoli nie ma gdzie wypisywać komunikatów,
+# więc kierujemy je do pliku diploma.log w folderze danych (przydaje się przy szukaniu błędów)
+if sys.stdout is None or sys.stderr is None:
+    _log = open(FOLDER_DANYCH / "diploma.log", "w", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stdout or _log
+    sys.stderr = sys.stderr or _log
+
+from nicegui import ui, run, native, app as aplikacja  # noqa: E402
+from app import klucz_api, projekt, asystent, historia, baza_wiedzy, wymagania, szablony, zalaczniki, koszty, ustawienia  # noqa: E402
+
+# Folder z ikoną: przy pisaniu leży obok main.py, w spakowanej aplikacji w folderze PyInstallera
+FOLDER_APLIKACJI = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+FOLDER_STATIC = FOLDER_APLIKACJI / "static"
 aplikacja.add_static_files("/static", FOLDER_STATIC)
 
 # Pozycje menu: (nazwa, ikona, adres)
@@ -904,12 +918,16 @@ def strona_klucza():
             przycisk.disable()
             ok, komunikat = await run.io_bound(klucz_api.sprawdz_klucz, klucz)
             przycisk.enable()
-            if ok:
-                klucz_api.zapisz_klucz(klucz)
-                ui.notify("Połączono z Claude!", type="positive")
-                ui.navigate.to("/")
-            else:
+            if not ok:
                 status.text = komunikat
+                return
+            try:
+                klucz_api.zapisz_klucz(klucz)
+            except Exception as e:
+                status.text = f"Klucz działa, ale nie udało się go zapisać w sejfie haseł systemu: {e}"
+                return
+            ui.notify("Połączono z Claude!", type="positive")
+            ui.navigate.to("/")
 
         przycisk = ui.button("Połącz", on_click=polacz).props("unelevated no-caps").classes("w-full")
 
@@ -924,4 +942,5 @@ if __name__ in {"__main__", "__mp_main__"}:
         native=True,
         window_size=(1280, 820),
         reload=False,
+        port=native.find_open_port(),  # wolny port, nawet gdy coś innego zajmuje domyślny
     )

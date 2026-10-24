@@ -1,0 +1,100 @@
+Diploma - instrukcja
+====================
+
+Hej! Diploma to program, który zrobiłem do pomocy przy pisaniu pracy dyplomowej.
+Wrzucasz do niego temat swojej pracy, PDF-y z uczelni i swoje materiały,
+a potem możesz go pytać o wszystko. Odpowiada na podstawie Twoich plików
+i pisze, skąd co wziął (nazwa pliku i strona).
+
+Pod spodem działa Claude, więc potrzebujesz własnego klucza API. Niżej opisałem,
+jak go zdobyć. To jest wersja 1.0, więc jak coś nie działa albo masz pomysł,
+co dodać, to po prostu do mnie napisz.
+
+
+Jak uruchomić
+-------------
+1. Rozpakuj ZIP-a (prawy przycisk -> "Wyodrębnij wszystko"), np. na Pulpit.
+   Nie odpalaj programu prosto z ZIP-a, bo nie zadziała.
+2. Wejdź do folderu Diploma i kliknij dwa razy Diploma.exe.
+3. Windows za pierwszym razem pokaże niebieskie okienko, że "ochronił komputer".
+   Spokojnie, to dlatego, że program nie ma płatnego certyfikatu.
+   Kliknij "Więcej informacji", a potem "Uruchom mimo to".
+
+Tip: zrób sobie skrót na pulpicie (prawy przycisk na Diploma.exe ->
+"Wyślij do" -> "Pulpit (utwórz skrót)").
+
+
+Klucz API (robisz to raz)
+-------------------------
+Konto API to coś innego niż zwykłe claude.ai, trzeba je założyć osobno.
+Płacisz za to, ile używasz. Na pisanie pracy spokojnie wystarczy kilka dolarów.
+
+1. Wejdź na https://platform.claude.com i załóż konto.
+2. W zakładce Billing doładuj konto. Ja dałem na start 5 dolarów.
+   Polecam od razu ustawić tam limit wydatków, żeby nic nie zaskoczyło.
+3. Wejdź na https://platform.claude.com/settings/keys i kliknij "Create key".
+4. Skopiuj klucz (zaczyna się od sk-ant-) i wklej go w programie.
+   Uwaga: klucz pokazuje się tylko raz, więc skopiuj go od razu.
+
+Klucz zapisuje się w menedżerze haseł Windowsa, a nie w jakimś pliku.
+Nie wysyłaj go nikomu, to jak hasło do Twojego konta.
+
+
+Od czego zacząć
+---------------
+1. "Mój projekt" - wpisz temat, cel, zakres i plan pracy. Asystent ma to cały
+   czas przed oczami, więc im dokładniej, tym lepiej odpowiada.
+2. "Wymagania uczelni" - wrzuć PDF-y z uczelni (regulaminy, wytyczne itp.).
+   Przy pierwszym wgraniu program ściąga model do wyszukiwania (ok. 220 MB),
+   więc musisz mieć internet i chwilę poczekać.
+   Potem zjedź na dół i kliknij "Wygeneruj z dokumentów". Wyjdzie Ci lista
+   wymagań (czcionka, marginesy, terminy...). Przejrzyj ją, popraw, jeśli
+   coś się nie zgadza, i kliknij "Zapisz".
+3. "Źródła" - wrzuć artykuły, przykładowe prace, notatki. Mogą być PDF albo
+   Word, mogą być po angielsku, a i tak odpowie Ci po polsku.
+4. "Asystent" - i tu już po prostu piszesz. Przy polu wiadomości jest "+",
+   gdzie możesz załączyć swój rozdział albo kod i wybrać gotowe polecenie,
+   np. recenzję rozdziału albo korektę językową.
+
+
+Ile to kosztuje
+---------------
+Pod każdą odpowiedzią widać, ile kosztowała, a w Ustawieniach jest
+podsumowanie miesiąca. Jest też limit miesięczny (na start 5 USD), po którym
+program przestaje wysyłać pytania. Możesz go zmienić w Ustawieniach.
+
+Kilka rzeczy, które warto wiedzieć:
+- Sonnet w zupełności wystarcza na co dzień. Opus jest mocniejszy,
+  ale dwa razy droższy, więc ja go używam tylko do większych recenzji.
+- Jak dajesz do sprawdzenia cały rozdział, zrób to w nowej rozmowie.
+  Załączony plik jest wysyłany przy każdym kolejnym pytaniu w tej samej
+  rozmowie, więc długa rozmowa z rozdziałem szybciej zjada kasę.
+
+
+Gdzie są Twoje dane
+-------------------
+Wszystko zostaje u Ciebie na komputerze:
+C:\Users\<Twoja nazwa>\AppData\Local\Diploma
+
+Do Claude idą tylko Twoje pytania, opis projektu, wymagania i te kawałki
+dokumentów, które są potrzebne do odpowiedzi.
+
+Jak dostaniesz ode mnie nowszą wersję, to po prostu usuń stary folder Diploma
+i rozpakuj nowy. Rozmowy, pliki i klucz zostaną, bo są zapisane gdzie indziej.
+
+
+Jak coś nie działa
+------------------
+- "Brak środków na koncie" - trzeba doładować konto na platform.claude.com.
+- "Klucz jest nieprawidłowy" - zrób nowy klucz i wklej go w
+  Ustawienia -> Zmień klucz API.
+- PDF się nie wczytuje - pewnie to skan. Spróbuj zaznaczyć tekst w tym
+  PDF-ie myszką. Jak się nie da, to program też go nie przeczyta.
+- Program się nie odpala albo dziwnie się zachowuje - wyślij mi plik
+  diploma.log z folderu C:\Users\<Twoja nazwa>\AppData\Local\Diploma
+
+I na koniec: to tylko pomocnik. Sprawdzaj źródła, które podaje, bo AI też
+się myli, i zobacz, co Twoja uczelnia mówi o korzystaniu z AI przy pracy.
+
+Powodzenia z pracą!
+Rafał

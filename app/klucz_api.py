@@ -1,5 +1,19 @@
-import keyring
+import sys
+
 import anthropic
+import keyring
+
+# Spakowana aplikacja (.exe) nie zawsze sama znajduje systemowy sejf haseł,
+# więc wskazujemy go wprost dla Windowsa i macOS.
+try:
+    if sys.platform == "win32":
+        from keyring.backends.Windows import WinVaultKeyring
+        keyring.set_keyring(WinVaultKeyring())
+    elif sys.platform == "darwin":
+        from keyring.backends.macOS import Keyring
+        keyring.set_keyring(Keyring())
+except Exception as e:
+    print("Nie udało się ustawić sejfu haseł:", e)
 
 # Pod tą nazwą klucz będzie widoczny w systemowym sejfie haseł
 SERWIS = "Diploma"
@@ -10,7 +24,8 @@ def wczytaj_klucz():
     """Zwraca zapisany klucz albo None, jeśli go nie ma."""
     try:
         return keyring.get_password(SERWIS, NAZWA)
-    except Exception:
+    except Exception as e:
+        print("Błąd odczytu klucza:", e)
         return None
 
 
