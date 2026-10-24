@@ -1,7 +1,7 @@
 import re
 
 from nicegui import ui, run
-from app import klucz_api, projekt, asystent, historia, baza_wiedzy, wymagania, szablony, zalaczniki
+from app import klucz_api, projekt, asystent, historia, baza_wiedzy, wymagania, szablony, zalaczniki, koszty, ustawienia
 from app.sciezki import FOLDER_DANYCH
 
 # Pozycje menu: (nazwa, ikona, adres, czy_gotowe)
@@ -10,7 +10,7 @@ MENU = [
     ("Mój projekt", "school", "/projekt", True),
     ("Wymagania uczelni", "rule", "/wymagania", True),
     ("Źródła", "menu_book", "/zrodla", True),
-    ("Ustawienia", "settings", "/klucz", True),
+    ("Ustawienia", "settings", "/ustawienia", True),
 ]
 
 
@@ -91,6 +91,10 @@ def strona_asystenta():
         with ui.row().classes("w-full items-end no-wrap"):
             ui.button(icon="attach_file", on_click=lambda: okno_zalacznika.open()).props("flat round").tooltip("Załącz plik")
             pole = ui.textarea(placeholder="Napisz wiadomość... (Enter wysyła, Shift+Enter nowa linia)").props("autogrow outlined").classes("flex-grow")
+            ui.select(
+                koszty.NAZWY_MODELI, value=ustawienia.model(),
+                on_change=lambda e: ustawienia.ustaw("model", e.value),
+            ).props("dense outlined options-dense").classes("w-28").tooltip("Model: Sonnet na co dzień, Opus do trudnych zadań (2× droższy)")
             przycisk = ui.button(icon="send")
 
     # Pliki załączone do następnej wiadomości: lista {"nazwa": ..., "tekst": ...}
@@ -242,14 +246,20 @@ def strona_asystenta():
                             ui.markdown(f["tresc"]).classes("text-grey-8")
                             ui.separator()
 
+            miesiac = koszty.suma_miesiac()
+            limit = ustawienia.limit()
             info.text = (
-                f"Ostatnia odpowiedź: wejście {wynik['wejscie']} tok. "
-                f"(z cache: {wynik['cache']}), wyjście {wynik['wyjscie']} tok."
+                f"{koszty.NAZWY_MODELI[wynik['model']]} · koszt odpowiedzi: ${wynik['koszt']:.4f} "
+                f"· wejście {wynik['wejscie']} tok. (z cache: {wynik['cache']}), wyjście {wynik['wyjscie']} tok."
             )
             if wynik["kroki"]:
                 info.text += f" · rundy wyszukiwania: {wynik['kroki']}"
             if len(do_wyslania) > asystent.MAKS_WIADOMOSCI:
                 info.text += f" · wysłano tylko ostatnie {asystent.MAKS_WIADOMOSCI} wiadomości"
+            info.text += f" · ten miesiąc: ${miesiac:.2f}" + (f" / ${limit:.2f}" if limit else "")
+
+            if limit and miesiac >= 0.8 * limit:
+                ui.notify(f"Wykorzystano {miesiac / limit:.0%} miesięcznego limitu wydatków.", type="warning")
         except Exception as e:
             odp.content = f"⚠️ {asystent.przyjazny_blad(e)} (Ta wymiana nie została zapisana.)"
             pole.value = tekst  # przywróć polecenie, żeby można było wysłać ponownie
@@ -419,9 +429,9 @@ def karta_wymagan():
                 zebrane.append(kawalek)
                 pole.value = "".join(zebrane)
 
-            w = await wymagania.generuj(tekst, przy_kawalku)
+            w, koszt = await wymagania.generuj(tekst, przy_kawalku)
             status.text = (
-                f"Gotowe ({w.usage.input_tokens} tok. wejścia, {w.usage.output_tokens} tok. wyjścia). "
+                f"Gotowe ({w.usage.input_tokens} tok. wejścia, {w.usage.output_tokens} tok. wyjścia, koszt ${koszt:.3f}). "
                 "Sprawdź kartę, popraw, co trzeba, i kliknij Zapisz."
             )
         except Exception as e:
@@ -491,7 +501,90 @@ def strona_zrodel():
 
 
 # =====================================================================
-# USTAWIENIA (klucz API)
+# USTAWIENIA
+# =====================================================================
+
+@ui.page("/ustawienia")
+def strona_ustawien():
+    if not jest_klucz():
+        return
+    uklad("Ustawienia")
+
+    with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-4"):
+        # ---------- model ----------
+        ui.label("Model").classes("text-h5")
+        ui.label(
+            "Sonnet wystarcza do większości pracy. Opus jest mocniejszy przy trudnych analizach "
+            "i recenzjach, ale 2× droższy. Model możesz też przełączać w czacie."
+        ).classes("text-grey-7")
+        ui.radio(
+            {k: f"{n}  (${c['wejscie']:.0f} / ${c['wyjscie']:.0f} za mln tokenów wej./wyj.)"
+             for (k, n), c in zip(koszty.NAZWY_MODELI.items(), koszty.CENNIK.values())},
+            value=ustawienia.model(),
+            on_change=lambda e: (ustawienia.ustaw("model", e.value), ui.notify("Zapisano model")),
+        )
+
+        ui.separator()
+
+        # ---------- limit ----------
+        ui.label("Miesięczny limit wydatków").classes("text-h5")
+        ui.label(
+            "Po osiągnięciu limitu asystent przestanie odpowiadać do końca miesiąca (albo do zmiany limitu). "
+            "0 = bez limitu. Niezależnie od tego warto ustawić limit także na koncie w Claude Console."
+        ).classes("text-grey-7")
+        with ui.row().classes("items-center"):
+            pole_limitu = ui.number("Limit (USD)", value=ustawienia.limit(), min=0, step=1, format="%.2f").classes("w-40")
+
+            def zapisz_limit():
+                ustawienia.ustaw("limit_miesieczny", float(pole_limitu.value or 0))
+                ui.notify("Zapisano limit", type="positive")
+
+            ui.button("Zapisz", icon="save", on_click=zapisz_limit)
+
+        ui.separator()
+
+        # ---------- zużycie ----------
+        ui.label("Zużycie").classes("text-h5")
+        with ui.row().classes("gap-4"):
+            for opis, kwota in (
+                ("Dziś", koszty.suma_dzis()),
+                ("Ten miesiąc", koszty.suma_miesiac()),
+                ("Łącznie", koszty.suma_lacznie()),
+            ):
+                with ui.card().classes("items-center px-6"):
+                    ui.label(opis).classes("text-caption text-grey-7")
+                    ui.label(f"${kwota:.2f}").classes("text-h6")
+
+        wiersze = [
+            {"rodzaj": w["rodzaj"], "model": koszty.NAZWY_MODELI.get(w["model"], w["model"]),
+             "wywolan": w["wywolan"], "koszt": f"${w['koszt']:.3f}"}
+            for w in koszty.szczegoly_miesiaca()
+        ]
+        if wiersze:
+            ui.label("Ten miesiąc w szczegółach").classes("text-subtitle1")
+            ui.table(
+                columns=[
+                    {"name": "rodzaj", "label": "Rodzaj", "field": "rodzaj", "align": "left"},
+                    {"name": "model", "label": "Model", "field": "model", "align": "left"},
+                    {"name": "wywolan", "label": "Wywołań API", "field": "wywolan"},
+                    {"name": "koszt", "label": "Koszt", "field": "koszt"},
+                ],
+                rows=wiersze,
+            ).classes("w-full")
+        ui.label(
+            "Koszty liczone przez aplikację na podstawie cennika z dnia 24.10.2026. "
+            "Dokładne rozliczenie znajdziesz w Claude Console (platform.claude.com)."
+        ).classes("text-caption text-grey-6")
+
+        ui.separator()
+
+        # ---------- klucz ----------
+        ui.label("Klucz API").classes("text-h5")
+        ui.button("Zmień klucz API", icon="key", on_click=lambda: ui.navigate.to("/klucz")).props("outline")
+
+
+# =====================================================================
+# KLUCZ API
 # =====================================================================
 
 @ui.page("/klucz")

@@ -1,8 +1,10 @@
 import anthropic
-from app import klucz_api
+from app import klucz_api, koszty, ustawienia
 from app.sciezki import FOLDER_DANYCH
 
 PLIK = FOLDER_DANYCH / "wymagania.md"
+
+# Kartę wymagań zawsze robi Sonnet: zadanie jest proste (wyciąganie faktów), a dokumentów dużo
 MODEL = "claude-sonnet-5-5"
 
 # Bezpiecznik: ok. 100 tys. tokenów. Wystarczy na ok. 10 typowych dokumentów uczelni.
@@ -44,7 +46,8 @@ def zapisz(tekst):
 
 
 async def generuj(tekst_dokumentow, przy_kawalku):
-    """Wysyła dokumenty do Claude i strumieniuje gotową kartę wymagań."""
+    """Wysyła dokumenty do Claude i strumieniuje kartę wymagań. Zwraca (wiadomość, koszt)."""
+    ustawienia.sprawdz_limit()
     client = anthropic.AsyncAnthropic(api_key=klucz_api.wczytaj_klucz())
     tresc = f"<dokumenty>\n{tekst_dokumentow}\n</dokumenty>\n\n{POLECENIE}"
     async with client.messages.stream(
@@ -54,4 +57,6 @@ async def generuj(tekst_dokumentow, przy_kawalku):
     ) as strumien:
         async for kawalek in strumien.text_stream:
             przy_kawalku(kawalek)
-        return await strumien.get_final_message()
+        wiadomosc = await strumien.get_final_message()
+    _, koszt = koszty.zapisz("karta wymagań", MODEL, wiadomosc.usage)
+    return wiadomosc, koszt

@@ -1,9 +1,7 @@
 import asyncio
 
 import anthropic
-from app import klucz_api, projekt, wymagania, baza_wiedzy
-
-MODEL = "claude-sonnet-5-5"
+from app import klucz_api, projekt, wymagania, baza_wiedzy, koszty, ustawienia
 
 # Ile ostatnich wiadomości wysyłamy do modelu (sufit kosztów jednego pytania)
 MAKS_WIADOMOSCI = 20
@@ -139,14 +137,18 @@ async def odpowiedz(historia, przy_kawalku, przy_narzedziu):
     i odsyłamy wyniki, aż model napisze końcową odpowiedź.
     Zwraca podsumowanie: zużycie tokenów i fragmenty, które asystent przeczytał.
     """
+    ustawienia.sprawdz_limit()
+
+    model = ustawienia.model()
     client = anthropic.AsyncAnthropic(api_key=klucz_api.wczytaj_klucz())
     wiadomosci = list(przytnij(historia))
-    podsumowanie = {"wejscie": 0, "cache": 0, "wyjscie": 0, "fragmenty": [], "kroki": 0}
+    podsumowanie = {"wejscie": 0, "cache": 0, "wyjscie": 0, "koszt": 0.0,
+                    "model": model, "fragmenty": [], "kroki": 0}
 
     for _ in range(MAKS_KROKOW):
         napisano_tekst = False
         async with client.messages.stream(
-            model=MODEL,
+            model=model,
             max_tokens=4000,
             system=prompt_systemowy(),
             tools=NARZEDZIA,
@@ -157,10 +159,12 @@ async def odpowiedz(historia, przy_kawalku, przy_narzedziu):
                 przy_kawalku(kawalek)
             odpowiedz_modelu = await strumien.get_final_message()
 
-        u = odpowiedz_modelu.usage
-        podsumowanie["wejscie"] += u.input_tokens
-        podsumowanie["cache"] += u.cache_read_input_tokens or 0
-        podsumowanie["wyjscie"] += u.output_tokens
+        # Każde wywołanie API od razu trafia do licznika kosztów
+        tokeny, koszt = koszty.zapisz("czat", model, odpowiedz_modelu.usage)
+        podsumowanie["wejscie"] += tokeny["wejscie"] + tokeny["cache_zapis"] + tokeny["cache_odczyt"]
+        podsumowanie["cache"] += tokeny["cache_odczyt"]
+        podsumowanie["wyjscie"] += tokeny["wyjscie"]
+        podsumowanie["koszt"] += koszt
 
         # Model skończył: nie prosi o żadne narzędzie
         if odpowiedz_modelu.stop_reason != "tool_use":
@@ -188,6 +192,9 @@ async def odpowiedz(historia, przy_kawalku, przy_narzedziu):
 def przyjazny_blad(e):
     """Zamienia techniczny błąd na komunikat zrozumiały dla użytkownika."""
     tekst = str(e).lower()
+    if isinstance(e, ustawienia.LimitPrzekroczony):
+        return (f"Osiągnięto miesięczny limit wydatków (${ustawienia.limit():.2f}). "
+                "Możesz go zmienić w Ustawieniach.")
     if isinstance(e, anthropic.AuthenticationError):
         return "Klucz API jest nieprawidłowy. Zmień go w Ustawieniach."
     if "credit balance" in tekst:
