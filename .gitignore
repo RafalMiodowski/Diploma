@@ -1,0 +1,16 @@
+# Środowisko wirtualne (każdy tworzy własne)
+.venv/
+
+# Pliki tymczasowe Pythona
+__pycache__/
+*.pyc
+
+# Sekrety: klucz API NIGDY nie trafia do Gita
+.env
+
+# Dane użytkownika: PDF-y, bazy, historia rozmów
+data/
+
+# Wyniki budowania aplikacji
+build/
+dist/
