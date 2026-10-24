@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime
 
+import docx
 import numpy as np
 import pymupdf4llm
 from fastembed import TextEmbedding
@@ -14,8 +15,11 @@ FOLDER_MODELI = FOLDER_DANYCH / "modele"
 # Mały wielojęzyczny model (dobrze radzi sobie z polskim), ok. 220 MB, pobiera się raz
 MODEL_EMBEDDINGOW = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
+OBSLUGIWANE = (".pdf", ".docx")
+
 DLUGOSC_FRAGMENTU = 1200  # znaków
 ZAKLADKA = 200            # tyle znaków powtarza się między sąsiednimi fragmentami
+MIN_DLUGOSC = 80          # krótsze fragmenty (np. sam tytuł slajdu) pomijamy
 
 
 # ---------- baza ----------
@@ -40,10 +44,16 @@ def _przygotuj():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 dokument_id INTEGER NOT NULL,
                 strona INTEGER NOT NULL,
+                miejsce TEXT,
                 tresc TEXT NOT NULL,
                 wektor BLOB NOT NULL
             );
         """)
+        # Migracja: bazy z kroku 7 nie mają kolumny "miejsce"
+        kolumny = [k["name"] for k in baza.execute("PRAGMA table_info(fragmenty)")]
+        if "miejsce" not in kolumny:
+            baza.execute("ALTER TABLE fragmenty ADD COLUMN miejsce TEXT")
+            baza.execute("UPDATE fragmenty SET miejsce = 'str. ' || strona")
 
 
 _przygotuj()
@@ -64,6 +74,42 @@ def _model_embeddingow():
 
 def _wektory(teksty):
     return np.array(list(_model_embeddingow().embed(teksty)), dtype=np.float32)
+
+
+# ---------- odczyt plików ----------
+
+def _wyciagnij(sciezka):
+    """Zwraca listę trójek (numer, miejsce, tekst): strony PDF-a albo sekcje DOCX-a."""
+    rozszerzenie = sciezka.suffix.lower()
+
+    if rozszerzenie == ".pdf":
+        wynik = []
+        for i, strona in enumerate(pymupdf4llm.to_markdown(str(sciezka), page_chunks=True)):
+            numer = strona.get("metadata", {}).get("page_number", i + 1)
+            wynik.append((numer, f"str. {numer}", strona.get("text", "")))
+        return wynik
+
+    if rozszerzenie == ".docx":
+        sekcje = []
+        naglowek = "początek dokumentu"
+        bufor = []
+        for akapit in docx.Document(str(sciezka)).paragraphs:
+            tekst = akapit.text.strip()
+            if not tekst:
+                continue
+            styl = (akapit.style.name or "").lower()
+            if styl.startswith(("heading", "nagłówek", "title", "tytuł")):
+                if bufor:
+                    sekcje.append((naglowek, "\n\n".join(bufor)))
+                    bufor = []
+                naglowek = tekst
+            else:
+                bufor.append(tekst)
+        if bufor:
+            sekcje.append((naglowek, "\n\n".join(bufor)))
+        return [(i + 1, nag, tekst) for i, (nag, tekst) in enumerate(sekcje)]
+
+    raise ValueError("Obsługiwane formaty: PDF i DOCX.")
 
 
 # ---------- cięcie tekstu ----------
@@ -92,8 +138,12 @@ def _podziel(tekst):
 
 # ---------- operacje na dokumentach ----------
 
-def dodaj_pdf(kolekcja, nazwa_pliku, dane):
-    """Zapisuje PDF, tnie na fragmenty, liczy embeddingi. Zwraca (stron, fragmentów)."""
+def dodaj_dokument(kolekcja, nazwa_pliku, dane):
+    """Zapisuje plik, tnie na fragmenty, liczy embeddingi. Zwraca (stron/sekcji, fragmentów)."""
+    from pathlib import Path
+    if Path(nazwa_pliku).suffix.lower() not in OBSLUGIWANE:
+        raise ValueError("Obsługiwane formaty: PDF i DOCX.")
+
     folder = FOLDER_PLIKOW / kolekcja
     folder.mkdir(parents=True, exist_ok=True)
     sciezka = folder / nazwa_pliku
@@ -107,30 +157,31 @@ def dodaj_pdf(kolekcja, nazwa_pliku, dane):
     for s in stare:
         _usun_z_bazy(s["id"])
 
-    strony = pymupdf4llm.to_markdown(str(sciezka), page_chunks=True)
-    fragmenty = []  # pary (numer_strony, tekst)
-    for i, strona in enumerate(strony):
-        numer = strona.get("metadata", {}).get("page_number", i + 1)
-        for f in _podziel(strona.get("text", "")):
-            fragmenty.append((numer, f))
+    jednostki = _wyciagnij(sciezka)
+    fragmenty = []  # trójki (numer, miejsce, tekst)
+    for numer, miejsce, tekst in jednostki:
+        for f in _podziel(tekst):
+            if len(f) >= MIN_DLUGOSC:
+                fragmenty.append((numer, miejsce, f))
 
     if not fragmenty:
         sciezka.unlink(missing_ok=True)
         raise ValueError("Nie udało się odczytać tekstu. To może być skan (zdjęcie strony), a skanów v1 jeszcze nie obsługuje.")
 
-    wektory = _wektory([tekst for _, tekst in fragmenty])
+    wektory = _wektory([tekst for _, _, tekst in fragmenty])
 
     with _polacz() as baza:
         kursor = baza.execute(
             "INSERT INTO dokumenty (kolekcja, plik, stron, dodano) VALUES (?, ?, ?, ?)",
-            (kolekcja, nazwa_pliku, len(strony), datetime.now().isoformat(timespec="seconds")),
+            (kolekcja, nazwa_pliku, len(jednostki), datetime.now().isoformat(timespec="seconds")),
         )
         dokument_id = kursor.lastrowid
         baza.executemany(
-            "INSERT INTO fragmenty (dokument_id, strona, tresc, wektor) VALUES (?, ?, ?, ?)",
-            [(dokument_id, nr, tekst, w.tobytes()) for (nr, tekst), w in zip(fragmenty, wektory)],
+            "INSERT INTO fragmenty (dokument_id, strona, miejsce, tresc, wektor) VALUES (?, ?, ?, ?, ?)",
+            [(dokument_id, nr, miejsce, tekst, w.tobytes())
+             for (nr, miejsce, tekst), w in zip(fragmenty, wektory)],
         )
-    return len(strony), len(fragmenty)
+    return len(jednostki), len(fragmenty)
 
 
 def lista_dokumentow(kolekcja):
@@ -163,7 +214,7 @@ def szukaj(kolekcja, pytanie, ile=5):
     """Zwraca fragmenty najbardziej podobne znaczeniowo do pytania."""
     with _polacz() as baza:
         wiersze = baza.execute("""
-            SELECT f.strona, f.tresc, f.wektor, d.plik
+            SELECT f.miejsce, f.tresc, f.wektor, d.plik
             FROM fragmenty f JOIN dokumenty d ON d.id = f.dokument_id
             WHERE d.kolekcja = ?
         """, (kolekcja,)).fetchall()
@@ -178,25 +229,25 @@ def szukaj(kolekcja, pytanie, ile=5):
     return [
         {
             "plik": wiersze[i]["plik"],
-            "strona": wiersze[i]["strona"],
+            "miejsce": wiersze[i]["miejsce"],
             "tresc": wiersze[i]["tresc"],
             "wynik": float(podobienstwo[i]),
         }
         for i in najlepsze
     ]
+
+
 # ---------- pełny tekst ----------
 
 def tekst_dokumentow(kolekcja):
-    """Cały tekst wszystkich dokumentów kolekcji, z oznaczeniem pliku i strony."""
+    """Cały tekst wszystkich dokumentów kolekcji, z oznaczeniem pliku i miejsca."""
     czesci = []
     for d in lista_dokumentow(kolekcja):
         sciezka = FOLDER_PLIKOW / kolekcja / d["plik"]
         if not sciezka.exists():
             continue
-        strony = pymupdf4llm.to_markdown(str(sciezka), page_chunks=True)
-        for i, strona in enumerate(strony):
-            numer = strona.get("metadata", {}).get("page_number", i + 1)
-            tekst = strona.get("text", "").strip()
+        for _, miejsce, tekst in _wyciagnij(sciezka):
+            tekst = tekst.strip()
             if tekst:
-                czesci.append(f"=== {d['plik']}, str. {numer} ===\n{tekst}")
+                czesci.append(f"=== {d['plik']}, {miejsce} ===\n{tekst}")
     return "\n\n".join(czesci)

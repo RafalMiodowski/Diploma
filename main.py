@@ -1,24 +1,24 @@
 from nicegui import ui, run
 from app import klucz_api, projekt, asystent, historia, baza_wiedzy, wymagania
 from app.sciezki import FOLDER_DANYCH
-
+ 
 # Pozycje menu: (nazwa, ikona, adres, czy_gotowe)
 MENU = [
     ("Asystent", "chat", "/", True),
     ("Mój projekt", "school", "/projekt", True),
     ("Wymagania uczelni", "rule", "/wymagania", True),
-    ("Źródła", "menu_book", "/zrodla", False),
+    ("Źródła", "menu_book", "/zrodla", True),
     ("Ustawienia", "settings", "/klucz", True),
 ]
-
-
+ 
+ 
 def uklad(tytul):
     """Wspólny wygląd każdej strony: górny pasek + boczne menu."""
     with ui.header().classes("items-center"):
         ui.label("Diploma").classes("text-h6")
         ui.label("·").classes("opacity-60")
         ui.label(tytul).classes("opacity-90")
-
+ 
     with ui.left_drawer(value=True).classes("bg-grey-1"):
         for nazwa, ikona, adres, gotowe in MENU:
             przycisk = ui.button(
@@ -28,45 +28,49 @@ def uklad(tytul):
             if not gotowe:
                 przycisk.disable()
                 przycisk.tooltip("Wkrótce")
-
-
+ 
+ 
 def jest_klucz():
     """Jeśli nie ma klucza, odeślij na ekran klucza."""
     if not klucz_api.wczytaj_klucz():
         ui.navigate.to("/klucz")
         return False
     return True
-
-
+ 
+ 
+# =====================================================================
+# ASYSTENT (czat)
+# =====================================================================
+ 
 @ui.page("/")
 def strona_asystenta():
     if not jest_klucz():
         return
     uklad("Asystent")
-
+ 
     with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-2 h-[calc(100vh-70px)] no-wrap"):
         # Wybór rozmowy + przyciski
         with ui.row().classes("w-full items-center no-wrap"):
             wybor = ui.select({}, label="Rozmowa").classes("flex-grow")
             ui.button(icon="add_comment", on_click=lambda: nowa()).props("flat").tooltip("Nowa rozmowa")
             ui.button(icon="delete", on_click=lambda: potwierdz_usuniecie()).props("flat").tooltip("Usuń rozmowę")
-
+ 
         with ui.expansion("Co asystent wie o Twojej pracy", icon="school").classes("w-full"):
             ui.markdown(projekt.jako_tekst() or "_Karta projektu jest pusta._")
             ui.separator()
             ui.markdown(wymagania.wczytaj() or "_Karta wymagań jest pusta._")
-
+ 
         with ui.scroll_area().classes("w-full flex-grow border rounded") as obszar:
             wiadomosci = ui.column().classes("w-full gap-3 p-2")
-
+ 
         info = ui.label().classes("text-caption text-grey-6")
-
+ 
         with ui.row().classes("w-full items-end no-wrap"):
             pole = ui.textarea(placeholder="Napisz wiadomość... (Enter wysyła, Shift+Enter nowa linia)").props("autogrow outlined").classes("flex-grow")
             przycisk = ui.button(icon="send")
-
+ 
     # ---------- funkcje pomocnicze ----------
-
+ 
     def dymek(rola, tekst):
         with wiadomosci:
             if rola == "user":
@@ -76,12 +80,12 @@ def strona_asystenta():
             else:
                 with ui.card().classes("w-full"):
                     return ui.markdown(tekst)
-
+ 
     def odswiez_liste():
         wybor.options = {r["id"]: r["tytul"] for r in historia.lista_rozmow()}
         wybor.value = asystent.aktywna_rozmowa
         wybor.update()
-
+ 
     def pokaz_rozmowe():
         wiadomosci.clear()
         info.text = ""
@@ -89,17 +93,17 @@ def strona_asystenta():
             for w in historia.wiadomosci(asystent.aktywna_rozmowa):
                 dymek(w["role"], w["content"])
         obszar.scroll_to(percent=1.0)
-
+ 
     def zmiana_rozmowy(e):
         if e.value != asystent.aktywna_rozmowa:
             asystent.aktywna_rozmowa = e.value
             pokaz_rozmowe()
-
+ 
     def nowa():
         asystent.aktywna_rozmowa = None
         wybor.value = None
         pokaz_rozmowe()
-
+ 
     def potwierdz_usuniecie():
         if not asystent.aktywna_rozmowa:
             return
@@ -107,16 +111,16 @@ def strona_asystenta():
             ui.label("Usunąć tę rozmowę? Tego nie da się cofnąć.")
             with ui.row():
                 ui.button("Anuluj", on_click=okno.close).props("flat")
-
+ 
                 def usun():
                     historia.usun_rozmowe(asystent.aktywna_rozmowa)
                     okno.close()
                     nowa()
                     odswiez_liste()
-
+ 
                 ui.button("Usuń", color="negative", on_click=usun)
         okno.open()
-
+ 
     async def wyslij():
         tekst = (pole.value or "").strip()
         if not tekst:
@@ -124,24 +128,24 @@ def strona_asystenta():
         pole.value = ""
         przycisk.disable()
         wybor.disable()
-
+ 
         id_rozmowy = asystent.aktywna_rozmowa
         dotychczas = historia.wiadomosci(id_rozmowy) if id_rozmowy else []
         do_wyslania = dotychczas + [{"role": "user", "content": tekst}]
-
+ 
         dymek("user", tekst)
         odp = dymek("assistant", "_Asystent myśli..._")
         obszar.scroll_to(percent=1.0)
         zebrane = []
-
+ 
         def przy_kawalku(kawalek):
             zebrane.append(kawalek)
             odp.content = "".join(zebrane)
             obszar.scroll_to(percent=1.0)
-
+ 
         try:
             wiadomosc = await asystent.odpowiedz(do_wyslania, przy_kawalku)
-
+ 
             # Zapis dopiero po udanej odpowiedzi
             if not id_rozmowy:
                 id_rozmowy = historia.nowa_rozmowa(tekst[:60])
@@ -149,7 +153,7 @@ def strona_asystenta():
                 odswiez_liste()
             historia.dodaj_wiadomosc(id_rozmowy, "user", tekst)
             historia.dodaj_wiadomosc(id_rozmowy, "assistant", "".join(zebrane))
-
+ 
             u = wiadomosc.usage
             info.text = (
                 f"Ostatnia odpowiedź: wejście {u.input_tokens} tok. "
@@ -163,54 +167,64 @@ def strona_asystenta():
         finally:
             przycisk.enable()
             wybor.enable()
-
+ 
     # ---------- podpięcie zdarzeń i start ----------
-
+ 
     wybor.on_value_change(zmiana_rozmowy)
     przycisk.on_click(wyslij)
     pole.on("keydown.enter.exact.prevent", wyslij)
-
+ 
     odswiez_liste()
     pokaz_rozmowe()
-
+ 
+ 
+# =====================================================================
+# MÓJ PROJEKT
+# =====================================================================
+ 
 @ui.page("/projekt")
 def strona_projektu():
     if not jest_klucz():
         return
     uklad("Mój projekt")
-
+ 
     dane = projekt.wczytaj()
     pola = {}
-
+ 
     with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-3"):
         ui.label("Karta projektu").classes("text-h5")
         ui.label("Asystent będzie miał te informacje zawsze przed oczami. Im konkretniej, tym lepsze odpowiedzi.").classes("text-grey-7")
-
+ 
         for klucz, nazwa in projekt.POLA.items():
             if klucz in ("temat", "kierunek", "promotor"):
                 pola[klucz] = ui.input(nazwa, value=dane[klucz]).classes("w-full")
             else:
                 pola[klucz] = ui.textarea(nazwa, value=dane[klucz]).props("autogrow").classes("w-full")
-
+ 
         def zapisz():
             projekt.zapisz({klucz: pole.value for klucz, pole in pola.items()})
             ui.notify("Zapisano kartę projektu", type="positive")
-
+ 
         ui.button("Zapisz", icon="save", on_click=zapisz)
         ui.label(f"Dane zapisywane w: {FOLDER_DANYCH}").classes("text-caption text-grey-6")
-
+ 
+ 
+# =====================================================================
+# BAZY WIEDZY (wspólny szablon dla Wymagań i Źródeł)
+# =====================================================================
+ 
 async def odczytaj_plik(e):
     """Różne wersje NiceGUI przekazują wgrany plik trochę inaczej. Obsługujemy obie."""
     if hasattr(e, "file"):
         return e.file.name, await e.file.read()
     return e.name, e.content.read()
-
-
+ 
+ 
 def strona_kolekcji(kolekcja, tytul, opis):
-    """Wspólny ekran dla bazy wiedzy: wgrywanie PDF-ów, lista, test wyszukiwania."""
-
+    """Wspólny ekran dla bazy wiedzy: wgrywanie plików, lista, test wyszukiwania."""
+ 
     # ---------- funkcje ----------
-
+ 
     def odswiez_liste():
         lista.clear()
         dokumenty = baza_wiedzy.lista_dokumentow(kolekcja)
@@ -218,27 +232,28 @@ def strona_kolekcji(kolekcja, tytul, opis):
             if not dokumenty:
                 ui.label("Brak dokumentów.").classes("text-grey-6")
             for d in dokumenty:
+                jednostka = "sekcji" if d["plik"].lower().endswith(".docx") else "str."
                 with ui.row().classes("w-full items-center no-wrap"):
                     ui.icon("description").classes("text-grey-7")
-                    ui.label(f"{d['plik']}  ·  {d['stron']} str., {d['fragmentow']} fragm.").classes("flex-grow")
+                    ui.label(f"{d['plik']}  ·  {d['stron']} {jednostka}, {d['fragmentow']} fragm.").classes("flex-grow")
                     ui.button(icon="delete", on_click=lambda i=d["id"]: usun(i)).props("flat dense")
-
+ 
     def usun(dokument_id):
         baza_wiedzy.usun_dokument(dokument_id)
         ui.notify("Usunięto dokument")
         odswiez_liste()
-
+ 
     async def przy_wgraniu(e):
         nazwa, dane = await odczytaj_plik(e)
-        status.text = f"Przetwarzam {nazwa}... (za pierwszym razem dłużej: pobieranie modelu ~220 MB)"
+        status.text = f"Przetwarzam {nazwa}..."
         try:
-            stron, fragm = await run.io_bound(baza_wiedzy.dodaj_pdf, kolekcja, nazwa, dane)
-            ui.notify(f"{nazwa}: {stron} stron, {fragm} fragmentów", type="positive")
+            _, fragm = await run.io_bound(baza_wiedzy.dodaj_dokument, kolekcja, nazwa, dane)
+            ui.notify(f"{nazwa}: {fragm} fragmentów", type="positive")
         except Exception as ex:
             ui.notify(f"{nazwa}: {ex}", type="negative", multi_line=True)
         status.text = ""
         odswiez_liste()
-
+ 
     async def szukaj():
         if not (pytanie.value or "").strip():
             return
@@ -249,40 +264,43 @@ def strona_kolekcji(kolekcja, tytul, opis):
                 ui.label("Baza jest pusta. Najpierw wgraj dokumenty.")
             for t in trafienia:
                 with ui.card().classes("w-full"):
-                    ui.label(f"{t['plik']}, str. {t['strona']}  ·  podobieństwo {t['wynik']:.2f}").classes("text-caption text-grey-7")
+                    ui.label(f"{t['plik']}, {t['miejsce']}  ·  podobieństwo {t['wynik']:.2f}").classes("text-caption text-grey-7")
                     ui.markdown(t["tresc"])
-
+ 
     # ---------- ekran ----------
-
+ 
     with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-3"):
         ui.label(tytul).classes("text-h5")
         ui.label(opis).classes("text-grey-7")
-
+ 
         ui.upload(
-            label="Przeciągnij PDF-y albo kliknij +",
+            label="Przeciągnij pliki PDF lub DOCX albo kliknij +",
             multiple=True, auto_upload=True, on_upload=przy_wgraniu,
-        ).props('accept=".pdf"').classes("w-full")
+        ).props('accept=".pdf,.docx"').classes("w-full")
         status = ui.label().classes("text-primary")
-
+ 
         ui.label("Wgrane dokumenty").classes("text-h6")
         lista = ui.column().classes("w-full gap-1")
-
+ 
         ui.separator()
         ui.label("Test wyszukiwania").classes("text-h6")
         ui.label("Wpisz pytanie i zobacz, jakie fragmenty asystent dostałby z tej bazy.").classes("text-grey-7")
         with ui.row().classes("w-full items-center no-wrap"):
-            pytanie = ui.input("Pytanie, np. jaka czcionka obowiązuje w pracy?").classes("flex-grow")
+            pytanie = ui.input("Pytanie").classes("flex-grow")
             pytanie.on("keydown.enter", szukaj)
             ui.button("Szukaj", icon="search", on_click=szukaj)
         wyniki = ui.column().classes("w-full gap-2")
-
+ 
     odswiez_liste()
-
-
-@ui.page("/wymagania")
+ 
+ 
+# =====================================================================
+# WYMAGANIA UCZELNI
+# =====================================================================
+ 
 def karta_wymagan():
     """Sekcja z kartą wymagań: generowanie, edycja, zapis."""
-
+ 
     async def generuj():
         if not baza_wiedzy.lista_dokumentow("uczelnia"):
             ui.notify("Najpierw wgraj dokumenty uczelni.", type="warning")
@@ -295,15 +313,15 @@ def karta_wymagan():
             if len(tekst) > wymagania.MAKS_ZNAKOW:
                 tekst = tekst[:wymagania.MAKS_ZNAKOW]
                 ui.notify("Dokumenty są bardzo długie. Wzięto tylko ich początek.", type="warning")
-
+ 
             status.text = "Asystent czyta dokumenty i pisze kartę. To może potrwać 1–2 minuty..."
             pole.value = ""
             zebrane = []
-
+ 
             def przy_kawalku(kawalek):
                 zebrane.append(kawalek)
                 pole.value = "".join(zebrane)
-
+ 
             w = await wymagania.generuj(tekst, przy_kawalku)
             status.text = (
                 f"Gotowe ({w.usage.input_tokens} tok. wejścia, {w.usage.output_tokens} tok. wyjścia). "
@@ -314,7 +332,7 @@ def karta_wymagan():
         finally:
             przycisk_gen.enable()
             przycisk_zapisz.enable()
-
+ 
     async def klik_generuj():
         if (pole.value or "").strip():
             with ui.dialog() as okno, ui.card():
@@ -326,11 +344,11 @@ def karta_wymagan():
             if not await okno:
                 return
         await generuj()
-
+ 
     def zapisz():
         wymagania.zapisz(pole.value or "")
         ui.notify("Zapisano kartę wymagań. Asystent będzie z niej korzystał.", type="positive")
-
+ 
     with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-3"):
         ui.separator()
         ui.label("Karta wymagań").classes("text-h5")
@@ -343,8 +361,8 @@ def karta_wymagan():
             przycisk_zapisz = ui.button("Zapisz", icon="save", on_click=zapisz)
         status = ui.label().classes("text-primary")
         pole = ui.textarea(value=wymagania.wczytaj()).props("autogrow outlined").classes("w-full")
-
-
+ 
+ 
 @ui.page("/wymagania")
 def strona_wymagan():
     if not jest_klucz():
@@ -356,7 +374,29 @@ def strona_wymagan():
         "Wgraj regulaminy, zarządzenia i wytyczne dotyczące pracy dyplomowej: formatowanie, terminy, struktura, zasady cytowania.",
     )
     karta_wymagan()
-
+ 
+ 
+# =====================================================================
+# ŹRÓDŁA
+# =====================================================================
+ 
+@ui.page("/zrodla")
+def strona_zrodel():
+    if not jest_klucz():
+        return
+    uklad("Źródła")
+    strona_kolekcji(
+        "zrodla",
+        "Materiały źródłowe",
+        "Wgraj przykładowe prace dyplomowe, artykuły, fragmenty książek i notatki. "
+        "Asystent będzie z nich korzystał, podając plik i stronę.",
+    )
+ 
+ 
+# =====================================================================
+# USTAWIENIA (klucz API)
+# =====================================================================
+ 
 @ui.page("/klucz")
 def strona_klucza():
     with ui.card().classes("absolute-center w-[440px] p-6"):
@@ -366,10 +406,10 @@ def strona_klucza():
         ui.label("2. W Billing doładuj konto")
         ui.label("3. Wejdź w Settings → API keys i kliknij Create key")
         ui.label("4. Skopiuj klucz (zaczyna się od sk-ant-) i wklej poniżej")
-
+ 
         pole = ui.input("Klucz API", password=True, password_toggle_button=True).classes("w-full")
         status = ui.label().classes("text-negative")
-
+ 
         async def polacz():
             klucz = (pole.value or "").strip()
             status.text = "Sprawdzam klucz..."
@@ -382,12 +422,13 @@ def strona_klucza():
                 ui.navigate.to("/")
             else:
                 status.text = komunikat
-
+ 
         przycisk = ui.button("Połącz", on_click=polacz).classes("w-full")
-
+ 
         if klucz_api.wczytaj_klucz():
             ui.button("Anuluj", on_click=lambda: ui.navigate.to("/")).props("flat").classes("w-full")
-
-
+ 
+ 
 if __name__ in {"__main__", "__mp_main__"}:
     ui.run(title="Diploma", native=True, window_size=(1100, 750), reload=False)
+ 
