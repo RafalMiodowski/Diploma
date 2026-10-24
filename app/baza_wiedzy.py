@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 
 import docx
 import numpy as np
@@ -17,6 +18,7 @@ MODEL_EMBEDDINGOW = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 
 OBSLUGIWANE = (".pdf", ".docx")
 
+# ---------- PARAMETRY DO DOSTRAJANIA (po zmianie: "Przebuduj indeks") ----------
 DLUGOSC_FRAGMENTU = 1200  # znaków
 ZAKLADKA = 200            # tyle znaków powtarza się między sąsiednimi fragmentami
 MIN_DLUGOSC = 80          # krótsze fragmenty (np. sam tytuł slajdu) pomijamy
@@ -140,7 +142,6 @@ def _podziel(tekst):
 
 def dodaj_dokument(kolekcja, nazwa_pliku, dane):
     """Zapisuje plik, tnie na fragmenty, liczy embeddingi. Zwraca (stron/sekcji, fragmentów)."""
-    from pathlib import Path
     if Path(nazwa_pliku).suffix.lower() not in OBSLUGIWANE:
         raise ValueError("Obsługiwane formaty: PDF i DOCX.")
 
@@ -182,6 +183,19 @@ def dodaj_dokument(kolekcja, nazwa_pliku, dane):
              for (nr, miejsce, tekst), w in zip(fragmenty, wektory)],
         )
     return len(jednostki), len(fragmenty)
+
+
+def przebuduj(kolekcja):
+    """Przetwarza od nowa wszystkie dokumenty kolekcji, np. po zmianie parametrów cięcia.
+    Zwraca (liczba dokumentów, liczba fragmentów)."""
+    dokumentow = fragmentow = 0
+    for d in lista_dokumentow(kolekcja):
+        sciezka = FOLDER_PLIKOW / kolekcja / d["plik"]
+        if sciezka.exists():
+            _, fragm = dodaj_dokument(kolekcja, d["plik"], sciezka.read_bytes())
+            dokumentow += 1
+            fragmentow += fragm
+    return dokumentow, fragmentow
 
 
 def lista_dokumentow(kolekcja):
