@@ -1,6 +1,7 @@
 from nicegui import ui, run
 from app import klucz_api, projekt, asystent
 from app.sciezki import FOLDER_DANYCH
+from app import klucz_api, projekt, asystent, historia
 
 # Pozycje menu: (nazwa, ikona, adres, czy_gotowe)
 MENU = [
@@ -45,78 +46,131 @@ def strona_asystenta():
     uklad("Asystent")
 
     with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-2 h-[calc(100vh-70px)] no-wrap"):
-        # Podgląd tego, co asystent wie o projekcie (zwinięty)
+        # Wybór rozmowy + przyciski
+        with ui.row().classes("w-full items-center no-wrap"):
+            wybor = ui.select({}, label="Rozmowa").classes("flex-grow")
+            ui.button(icon="add_comment", on_click=lambda: nowa()).props("flat").tooltip("Nowa rozmowa")
+            ui.button(icon="delete", on_click=lambda: potwierdz_usuniecie()).props("flat").tooltip("Usuń rozmowę")
+
         with ui.expansion("Co asystent wie o Twoim projekcie", icon="school").classes("w-full"):
             ui.markdown(projekt.jako_tekst() or "_Karta projektu jest pusta._")
 
-        # Obszar wiadomości
         with ui.scroll_area().classes("w-full flex-grow border rounded") as obszar:
             wiadomosci = ui.column().classes("w-full gap-3 p-2")
 
-        def dymek(rola, tekst):
-            """Dodaje dymek wiadomości i zwraca element z tekstem."""
-            with wiadomosci:
-                if rola == "user":
-                    with ui.row().classes("w-full justify-end"):
-                        with ui.card().classes("bg-blue-1 max-w-[80%]"):
-                            return ui.markdown(tekst)
-                else:
-                    with ui.card().classes("w-full"):
-                        return ui.markdown(tekst)
-
-        # Pokaż rozmowę, która już trwa (np. po przejściu z innej zakładki)
-        for w in asystent.ROZMOWA:
-            dymek(w["role"], w["content"])
-
         info = ui.label().classes("text-caption text-grey-6")
 
-        # Pole do pisania i przyciski
         with ui.row().classes("w-full items-end no-wrap"):
             pole = ui.textarea(placeholder="Napisz wiadomość... (Enter wysyła, Shift+Enter nowa linia)").props("autogrow outlined").classes("flex-grow")
             przycisk = ui.button(icon="send")
 
-        async def wyslij():
-            tekst = (pole.value or "").strip()
-            if not tekst:
-                return
-            pole.value = ""
-            przycisk.disable()
+    # ---------- funkcje pomocnicze ----------
 
-            asystent.ROZMOWA.append({"role": "user", "content": tekst})
-            dymek("user", tekst)
-            odp = dymek("assistant", "_Asystent myśli..._")
+    def dymek(rola, tekst):
+        with wiadomosci:
+            if rola == "user":
+                with ui.row().classes("w-full justify-end"):
+                    with ui.card().classes("bg-blue-1 max-w-[80%]"):
+                        return ui.markdown(tekst)
+            else:
+                with ui.card().classes("w-full"):
+                    return ui.markdown(tekst)
+
+    def odswiez_liste():
+        wybor.options = {r["id"]: r["tytul"] for r in historia.lista_rozmow()}
+        wybor.value = asystent.aktywna_rozmowa
+        wybor.update()
+
+    def pokaz_rozmowe():
+        wiadomosci.clear()
+        info.text = ""
+        if asystent.aktywna_rozmowa:
+            for w in historia.wiadomosci(asystent.aktywna_rozmowa):
+                dymek(w["role"], w["content"])
+        obszar.scroll_to(percent=1.0)
+
+    def zmiana_rozmowy(e):
+        if e.value != asystent.aktywna_rozmowa:
+            asystent.aktywna_rozmowa = e.value
+            pokaz_rozmowe()
+
+    def nowa():
+        asystent.aktywna_rozmowa = None
+        wybor.value = None
+        pokaz_rozmowe()
+
+    def potwierdz_usuniecie():
+        if not asystent.aktywna_rozmowa:
+            return
+        with ui.dialog() as okno, ui.card():
+            ui.label("Usunąć tę rozmowę? Tego nie da się cofnąć.")
+            with ui.row():
+                ui.button("Anuluj", on_click=okno.close).props("flat")
+
+                def usun():
+                    historia.usun_rozmowe(asystent.aktywna_rozmowa)
+                    okno.close()
+                    nowa()
+                    odswiez_liste()
+
+                ui.button("Usuń", color="negative", on_click=usun)
+        okno.open()
+
+    async def wyslij():
+        tekst = (pole.value or "").strip()
+        if not tekst:
+            return
+        pole.value = ""
+        przycisk.disable()
+        wybor.disable()
+
+        id_rozmowy = asystent.aktywna_rozmowa
+        dotychczas = historia.wiadomosci(id_rozmowy) if id_rozmowy else []
+        do_wyslania = dotychczas + [{"role": "user", "content": tekst}]
+
+        dymek("user", tekst)
+        odp = dymek("assistant", "_Asystent myśli..._")
+        obszar.scroll_to(percent=1.0)
+        zebrane = []
+
+        def przy_kawalku(kawalek):
+            zebrane.append(kawalek)
+            odp.content = "".join(zebrane)
             obszar.scroll_to(percent=1.0)
 
-            zebrane = []
+        try:
+            wiadomosc = await asystent.odpowiedz(do_wyslania, przy_kawalku)
 
-            def przy_kawalku(kawalek):
-                zebrane.append(kawalek)
-                odp.content = "".join(zebrane)
-                obszar.scroll_to(percent=1.0)
+            # Zapis dopiero po udanej odpowiedzi
+            if not id_rozmowy:
+                id_rozmowy = historia.nowa_rozmowa(tekst[:60])
+                asystent.aktywna_rozmowa = id_rozmowy
+                odswiez_liste()
+            historia.dodaj_wiadomosc(id_rozmowy, "user", tekst)
+            historia.dodaj_wiadomosc(id_rozmowy, "assistant", "".join(zebrane))
 
-            try:
-                wiadomosc = await asystent.odpowiedz(asystent.ROZMOWA, przy_kawalku)
-                asystent.ROZMOWA.append({"role": "assistant", "content": "".join(zebrane)})
-                u = wiadomosc.usage
-                info.text = (
-                    f"Ostatnia odpowiedź: wejście {u.input_tokens} tok. "
-                    f"(z cache: {u.cache_read_input_tokens or 0}), "
-                    f"wyjście {u.output_tokens} tok."
-                )
-            except Exception as e:
-                asystent.ROZMOWA.pop()  # usuń pytanie, na które nie było odpowiedzi
-                odp.content = f"⚠️ {asystent.przyjazny_blad(e)}"
-            finally:
-                przycisk.enable()
+            u = wiadomosc.usage
+            info.text = (
+                f"Ostatnia odpowiedź: wejście {u.input_tokens} tok. "
+                f"(z cache: {u.cache_read_input_tokens or 0}), "
+                f"wyjście {u.output_tokens} tok."
+            )
+            if len(do_wyslania) > asystent.MAKS_WIADOMOSCI:
+                info.text += f" · wysłano tylko ostatnie {asystent.MAKS_WIADOMOSCI} wiadomości"
+        except Exception as e:
+            odp.content = f"⚠️ {asystent.przyjazny_blad(e)} (Ta wymiana nie została zapisana.)"
+        finally:
+            przycisk.enable()
+            wybor.enable()
 
-        def nowa_rozmowa():
-            asystent.ROZMOWA.clear()
-            wiadomosci.clear()
-            info.text = ""
+    # ---------- podpięcie zdarzeń i start ----------
 
-        przycisk.on_click(wyslij)
-        pole.on("keydown.enter.exact.prevent", wyslij)
-        ui.button("Nowa rozmowa", icon="add_comment", on_click=nowa_rozmowa).props("flat dense")
+    wybor.on_value_change(zmiana_rozmowy)
+    przycisk.on_click(wyslij)
+    pole.on("keydown.enter.exact.prevent", wyslij)
+
+    odswiez_liste()
+    pokaz_rozmowe()
 
 @ui.page("/projekt")
 def strona_projektu():
